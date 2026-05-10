@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+
+# Credentials — NEVER commit these
+backend/credentials/
+*.json
+!package.json
+!tsconfig*.json
+!tailwind.config.js
+!postcss.config.js
+!vite.config.ts
+
+# Node
+node_modules/
+frontend/dist/
+.DS_Store
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
