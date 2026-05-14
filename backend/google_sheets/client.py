@@ -83,22 +83,44 @@ class SheetsClient:
     # Connection helpers
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _in_streamlit() -> bool:
+        """Return True only when code is actually running inside Streamlit."""
+        try:
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+            return get_script_run_ctx() is not None
+        except Exception:
+            return False
+
     def _connect(self) -> gspread.Client:
         if self._gc is not None:
             return self._gc
 
         # ── Streamlit Cloud: credentials from st.secrets ─────────────────────
-        # When running on streamlit.app the service-account JSON lives in
-        # .streamlit/secrets.toml (or the Cloud secrets UI) — no file needed.
-        try:
+        # Use this path ONLY when genuinely running inside Streamlit so we
+        # don't accidentally swallow errors and fall through to file-based creds.
+        if self._in_streamlit():
             import streamlit as st
-            creds_info = dict(st.secrets["gcp_service_account"])
-            self._st_spreadsheet_id = str(st.secrets["google"]["spreadsheet_id"])
+            try:
+                creds_info = dict(st.secrets["gcp_service_account"])
+            except KeyError:
+                raise ValueError(
+                    "Streamlit secrets are missing the [gcp_service_account] section.\n\n"
+                    "Fix: go to  share.streamlit.io  → your app → "
+                    "⋮ Menu → Settings → Secrets  and paste your service-account JSON.\n"
+                    "See .streamlit/secrets.toml in the repo for the exact format."
+                )
+            try:
+                self._st_spreadsheet_id = str(st.secrets["google"]["spreadsheet_id"])
+            except KeyError:
+                raise ValueError(
+                    "Streamlit secrets are missing [google] spreadsheet_id.\n\n"
+                    "Add this to your Streamlit Cloud secrets:\n"
+                    "  [google]\n  spreadsheet_id = \"your-sheet-id\""
+                )
             creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
             self._gc = gspread.authorize(creds)
             return self._gc
-        except Exception:
-            pass
         # ─────────────────────────────────────────────────────────────────────
 
         # ── Local FastAPI dev: file-based credentials ─────────────────────────
