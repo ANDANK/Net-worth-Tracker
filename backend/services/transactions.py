@@ -114,6 +114,60 @@ def preview_file(file_bytes: bytes, filename: str, broker: str, account_id: str)
     return [tx.to_dict() for tx in parsed]
 
 
+def diagnose_file(file_bytes: bytes, filename: str, broker: str, account_id: str) -> dict:
+    """
+    Parse the file and return a full breakdown of what would be imported vs skipped,
+    including unrecognised action codes and duplicate detection.
+    """
+    parser = get_parser(broker)
+    if parser is None:
+        return {"error": f"No parser for broker '{broker}'"}
+
+    try:
+        df = _read_file(file_bytes, filename)
+    except Exception as e:
+        return {"error": f"Could not read file: {e}"}
+
+    parsed = parser.parse(df, account_id, filename)
+
+    # Per-action breakdown from raw file
+    diag = parser.diagnose(df) if hasattr(parser, "diagnose") else {}
+
+    # Duplicate check against existing sheet
+    try:
+        existing_ids = sheets_client.get_existing_transaction_ids()
+    except Exception as e:
+        existing_ids = set()
+        diag["sheets_error"] = str(e)
+
+    new_count = 0
+    dup_count = 0
+    seen = set()
+    for tx in parsed:
+        if tx.transaction_id in existing_ids or tx.transaction_id in seen:
+            dup_count += 1
+        else:
+            new_count += 1
+        seen.add(tx.transaction_id)
+
+    # Count by action type among parsed rows
+    by_action: dict[str, int] = {}
+    for tx in parsed:
+        key = str(tx.action)
+        by_action[key] = by_action.get(key, 0) + 1
+
+    return {
+        "total_rows_in_file":           len(df),
+        "parsed_count":                 len(parsed),
+        "would_import":                 new_count,
+        "would_skip_duplicates":        dup_count,
+        "skipped_unrecognised_action":  diag.get("skipped_by_unrecognised_action", 0),
+        "recognised_actions":           diag.get("recognised", {}),
+        "unrecognised_actions":         diag.get("unrecognised", {}),
+        "parsed_by_action":             by_action,
+    }
+
+
 def list_transactions(
     account_id: str = None,
     broker: str = None,

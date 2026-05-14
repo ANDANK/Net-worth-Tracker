@@ -1,4 +1,5 @@
 """Realized P&L and dividend income calculated from transaction history (FIFO cost basis)."""
+import math
 from collections import defaultdict
 from datetime import datetime
 from services.transactions import list_transactions
@@ -23,6 +24,15 @@ def _f(v) -> float:
         return float(v)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _s(val) -> str:
+    """NaN-safe string: float('nan') from Sheets reads as truthy but can't be strip()ped."""
+    if val is None:
+        return ""
+    if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+        return ""
+    return str(val).strip()
 
 
 def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) -> dict:
@@ -52,8 +62,8 @@ def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) 
     date_buckets: dict[str, dict] = defaultdict(lambda: {"realized": 0.0, "dividend": 0.0})
 
     for tx in txs_sorted:
-        action = tx.get("action", "")
-        ticker = (tx.get("ticker") or "").strip()
+        action = _s(tx.get("action"))
+        ticker = _s(tx.get("ticker"))
         date_str = tx.get("date", "")
         qty = _f(tx.get("quantity"))
         price = _f(tx.get("price"))
@@ -168,8 +178,8 @@ def validate_pnl(account_id: str = None) -> dict:
     zero_basis: list[dict] = []
 
     for tx in txs_sorted:
-        action = tx.get("action", "")
-        ticker = (tx.get("ticker") or "").strip()
+        action = _s(tx.get("action"))
+        ticker = _s(tx.get("ticker"))
         qty    = _f(tx.get("quantity"))
         price  = _f(tx.get("price"))
         total  = _f(tx.get("total_amount"))
