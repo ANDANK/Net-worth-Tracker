@@ -116,12 +116,12 @@ def preview_file(file_bytes: bytes, filename: str, broker: str, account_id: str)
 
 def diagnose_file(file_bytes: bytes, filename: str, broker: str, account_id: str) -> dict:
     """
-    Parse the file and return a full breakdown of what would be imported vs skipped,
-    including unrecognised action codes and duplicate detection.
+    Full pre-import analysis: what will be imported, what is OTHER, what are duplicates,
+    and any per-row parse errors.
     """
     parser = get_parser(broker)
     if parser is None:
-        return {"error": f"No parser for broker '{broker}'"}
+        return {"error": f"No parser found for broker '{broker}'. Check the broker ID."}
 
     try:
         df = _read_file(file_bytes, filename)
@@ -129,42 +129,53 @@ def diagnose_file(file_bytes: bytes, filename: str, broker: str, account_id: str
         return {"error": f"Could not read file: {e}"}
 
     parsed = parser.parse(df, account_id, filename)
+    parse_errors = getattr(parser, "parse_errors", [])
 
-    # Per-action breakdown from raw file
+    # Raw-file action code breakdown
     diag = parser.diagnose(df) if hasattr(parser, "diagnose") else {}
 
-    # Duplicate check against existing sheet
+    # Duplicate check
     try:
         existing_ids = sheets_client.get_existing_transaction_ids()
+        sheets_ok = True
     except Exception as e:
         existing_ids = set()
+        sheets_ok = False
         diag["sheets_error"] = str(e)
 
-    new_count = 0
-    dup_count = 0
-    seen = set()
+    new_rows, dup_rows, other_rows = [], [], []
+    seen: set[str] = set()
     for tx in parsed:
-        if tx.transaction_id in existing_ids or tx.transaction_id in seen:
-            dup_count += 1
-        else:
-            new_count += 1
+        is_dup = tx.transaction_id in existing_ids or tx.transaction_id in seen
         seen.add(tx.transaction_id)
+        action_str = str(tx.action).replace("TransactionType.", "")
+        if action_str == "OTHER":
+            other_rows.append(tx)
+        elif is_dup:
+            dup_rows.append(tx)
+        else:
+            new_rows.append(tx)
+        if not is_dup:
+            existing_ids.add(tx.transaction_id)
 
-    # Count by action type among parsed rows
+    # Per-action breakdown (financial + OTHER)
     by_action: dict[str, int] = {}
     for tx in parsed:
-        key = str(tx.action)
+        key = str(tx.action).replace("TransactionType.", "")
         by_action[key] = by_action.get(key, 0) + 1
 
     return {
-        "total_rows_in_file":           len(df),
-        "parsed_count":                 len(parsed),
-        "would_import":                 new_count,
-        "would_skip_duplicates":        dup_count,
-        "skipped_unrecognised_action":  diag.get("skipped_by_unrecognised_action", 0),
-        "recognised_actions":           diag.get("recognised", {}),
-        "unrecognised_actions":         diag.get("unrecognised", {}),
-        "parsed_by_action":             by_action,
+        "total_rows_in_file":    len(df),
+        "parsed_count":          len(parsed),
+        "would_import":          len(new_rows),
+        "would_skip_duplicates": len(dup_rows),
+        "other_count":           len(other_rows),      # NEW: uploaded as OTHER
+        "skipped_blank":         diag.get("skipped_blank", 0),
+        "recognised_actions":    diag.get("recognised", {}),
+        "other_actions":         diag.get("other", {}),# action codes → OTHER
+        "parsed_by_action":      by_action,
+        "parse_errors":          parse_errors,          # per-row exceptions
+        "sheets_connected":      sheets_ok,
     }
 
 

@@ -44,6 +44,7 @@ class TransactionType(str, Enum):
     WITHDRAWAL = "WITHDRAWAL"
     TRANSFER = "TRANSFER"
     SPLIT = "SPLIT"
+    OTHER = "OTHER"  # unrecognised code — uploaded for manual review, excluded from P&L
 
 
 class Account(BaseModel):

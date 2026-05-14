@@ -4,6 +4,10 @@ from collections import defaultdict
 from datetime import datetime
 from services.transactions import list_transactions
 
+# Only these action types affect P&L — everything else (OTHER, DEPOSIT,
+# WITHDRAWAL, TRANSFER, SPLIT) is silently ignored in all calculations.
+_PNL_ACTIONS = {"BUY", "SELL", "DIVIDEND", "INTEREST", "OPTION_BUY", "OPTION_SELL"}
+
 
 def _period_start(period: str | None) -> str | None:
     if not period or period == "all":
@@ -63,6 +67,8 @@ def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) 
 
     for tx in txs_sorted:
         action = _s(tx.get("action"))
+        if action not in _PNL_ACTIONS:
+            continue                         # skip OTHER, DEPOSIT, TRANSFER, etc.
         ticker = _s(tx.get("ticker"))
         date_str = tx.get("date", "")
         qty = _f(tx.get("quantity"))
@@ -179,6 +185,8 @@ def validate_pnl(account_id: str = None) -> dict:
 
     for tx in txs_sorted:
         action = _s(tx.get("action"))
+        if action not in _PNL_ACTIONS:
+            continue
         ticker = _s(tx.get("ticker"))
         qty    = _f(tx.get("quantity"))
         price  = _f(tx.get("price"))

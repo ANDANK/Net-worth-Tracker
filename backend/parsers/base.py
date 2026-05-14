@@ -9,6 +9,25 @@ import pandas as pd
 
 from models.schemas import TransactionType
 
+# ── Types that affect P&L / net-worth calculations ───────────────────────────
+FINANCIAL_TYPES: frozenset = frozenset({
+    TransactionType.BUY,
+    TransactionType.SELL,
+    TransactionType.DIVIDEND,
+    TransactionType.INTEREST,
+    TransactionType.OPTION_BUY,
+    TransactionType.OPTION_SELL,
+})
+
+# ── Raw values that mean "this row is blank / a repeated header" ──────────────
+_BLANK_RAWS: frozenset = frozenset({
+    "", "nan", "n/a", "none", "-", "null", "na",
+})
+
+
+def _is_blank(raw: str) -> bool:
+    return raw.strip().lower() in _BLANK_RAWS
+
 
 class ParsedTransaction:
     __slots__ = (
@@ -94,9 +113,61 @@ class ParsedTransaction:
 class BaseParser(ABC):
     broker_name: str = "Unknown"
 
+    # Populated during parse() — list of {"row", "raw_action", "error"}
+    parse_errors: list
+
     @abstractmethod
     def parse(self, df: pd.DataFrame, account_id: str, filename: str) -> list[ParsedTransaction]:
         ...
+
+    # ------------------------------------------------------------------ #
+    # Action classification helpers
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _action_or_other(raw: str, action_map: dict) -> Optional[TransactionType]:
+        """
+        Returns:
+          None              → row is blank / header repeat → skip entirely
+          TransactionType   → recognised action OR TransactionType.OTHER for unknown codes
+        """
+        if _is_blank(raw):
+            return None                           # skip silently
+        return action_map.get(raw, TransactionType.OTHER)  # unknown → OTHER
+
+    @staticmethod
+    def _action_or_other_fuzzy(raw: str, action_map: dict) -> Optional[TransactionType]:
+        """Same as _action_or_other but uses substring matching (for Schwab/Fidelity)."""
+        if _is_blank(raw):
+            return None
+        raw_lower = raw.lower()
+        for key, val in action_map.items():
+            if key.lower() in raw_lower:
+                return val
+        return TransactionType.OTHER
+
+    # ------------------------------------------------------------------ #
+    # Diagnose — inspect raw file without importing
+    # ------------------------------------------------------------------ #
+
+    def diagnose(self, df: pd.DataFrame) -> dict:
+        """
+        Count all action codes in the file split into:
+          recognised  → will be imported as financial/non-financial type
+          other       → unrecognised, will be uploaded as OTHER for review
+        Subclasses can override for broker-specific column names.
+        """
+        return {
+            "action_column": None,
+            "total_rows": len(df),
+            "recognised": {},
+            "other": {},
+            "skipped_blank": 0,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Cleaning helpers
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def clean_amount(val) -> float:
