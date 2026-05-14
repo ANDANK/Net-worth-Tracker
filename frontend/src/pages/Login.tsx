@@ -1,5 +1,9 @@
+// REPLACE: frontend/src/pages/Login.tsx
+// Change: import BrandMark for the hero lockup. TrendingUp is no longer
+// needed in this file; remove from the lucide-react import.
+
 import { useState } from 'react'
-import { TrendingUp } from 'lucide-react'
+import BrandMark from '../components/BrandMark'
 
 interface LoginProps {
   onLogin: (password: string) => Promise<boolean>
@@ -24,8 +28,8 @@ export default function Login({ onLogin }: LoginProps) {
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
-              <TrendingUp size={20} className="text-white" />
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center p-2">
+              <BrandMark className="w-full h-full text-white" />
             </div>
             <span className="text-xl font-bold text-slate-100">NetWorth Tracker</span>
           </div>

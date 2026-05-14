@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#2563eb" aria-label="NetWorth Tracker">
+  <rect x="2.5" y="15.5" width="3" height="6.5" rx="1.5"></rect>
+  <rect x="7" y="11" width="3" height="11" rx="1.5"></rect>
+  <rect x="11.5" y="6.5" width="3" height="15.5" rx="1.5"></rect>
+  <rect x="16" y="4" width="3" height="18" rx="1.5"></rect>
+  <circle cx="17.5" cy="1.5" r="1.5"></circle>
+</svg>

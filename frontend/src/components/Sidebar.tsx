@@ -1,9 +1,15 @@
+// REPLACE: frontend/src/components/Sidebar.tsx
+// Change: import BrandMark instead of TrendingUp for the brand lockup.
+// The TrendingUp icon is still used elsewhere (Projections nav), so keep
+// it in the lucide-react import list.
+
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, Upload,
   BarChart2, TrendingUp, Settings, LogOut, HelpCircle, Activity,
 } from 'lucide-react'
 import clsx from 'clsx'
+import BrandMark from './BrandMark'
 
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -26,8 +32,8 @@ export default function Sidebar({ onLogout }: SidebarProps) {
     <aside className="fixed inset-y-0 left-0 w-56 bg-slate-900 border-r border-slate-700/50 flex flex-col z-30">
       <div className="px-5 py-6 border-b border-slate-700/50">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
-            <TrendingUp size={14} className="text-white" />
+          <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center p-[5px]">
+            <BrandMark className="w-full h-full text-white" />
           </div>
           <span className="font-semibold text-slate-100 text-sm">NetWorth</span>
         </div>
