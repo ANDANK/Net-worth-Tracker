@@ -15,6 +15,8 @@ except ImportError:
     pass
 # ─────────────────────────────────────────────────────────────────────────────
 
+import math
+
 import gspread
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
@@ -210,8 +212,20 @@ class SheetsClient:
         ws.append_row(row, value_input_option="USER_ENTERED")
 
     @staticmethod
+    def _sanitize_rows(rows: list) -> list:
+        """Replace NaN/inf with empty string so gspread can JSON-serialize."""
+        clean = []
+        for row in rows:
+            clean.append([
+                "" if isinstance(v, float) and (math.isnan(v) or math.isinf(v)) else v
+                for v in row
+            ])
+        return clean
+
+    @staticmethod
     def _append_chunk(ws: "gspread.Worksheet", chunk: list) -> None:
         """Append one chunk with exponential back-off on 429 quota errors."""
+        chunk = SheetsClient._sanitize_rows(chunk)
         delay = _RETRY_BASE_SEC
         for attempt in range(_MAX_RETRY):
             try:

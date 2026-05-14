@@ -1,5 +1,6 @@
 """Base parser — all broker parsers inherit from this."""
 import hashlib
+import math
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -46,16 +47,27 @@ class ParsedTransaction:
         key = f"{self.date}|{self.ticker}|{self.action}|{self.quantity}|{self.total_amount}"
         return hashlib.sha256(key.encode()).hexdigest()[:32]
 
+    @staticmethod
+    def _safe_num(val, default=""):
+        """Return val if it's a real number; default if None/NaN/inf."""
+        if val is None:
+            return default
+        try:
+            f = float(val)
+            return default if (math.isnan(f) or math.isinf(f)) else f
+        except (TypeError, ValueError):
+            return default
+
     def to_row(self) -> list:
         return [
             self.transaction_id,
             self.date,
             self.ticker or "",
             self.action,
-            self.quantity if self.quantity is not None else "",
-            self.price if self.price is not None else "",
-            self.fees,
-            self.total_amount,
+            self._safe_num(self.quantity, ""),
+            self._safe_num(self.price, ""),
+            self._safe_num(self.fees, 0.0),
+            self._safe_num(self.total_amount, 0.0),
             self.broker,
             self.account_id,
             self.imported_file,
