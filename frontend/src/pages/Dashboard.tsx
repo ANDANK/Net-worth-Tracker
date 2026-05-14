@@ -9,11 +9,26 @@ import { DashboardSummary, NetWorthPoint } from '../types'
 import StatCard from '../components/StatCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import PageHeader from '../components/PageHeader'
+import { AlertCircle } from 'lucide-react'
 
 const PERIODS = ['1m', '3m', '1y', '5y', 'all'] as const
 type Period = typeof PERIODS[number]
 
 const PIE_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4']
+
+const EMPTY_SUMMARY: DashboardSummary = {
+  total_net_worth: 0,
+  investment_value: 0,
+  retirement_value: 0,
+  cash_value: 0,
+  crypto_value: 0,
+  real_estate_value: 0,
+  monthly_change: 0,
+  monthly_change_pct: 0,
+  ytd_change: 0,
+  ytd_change_pct: 0,
+  last_updated: '—',
+}
 
 function fmt(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
@@ -25,22 +40,39 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
 }
 
+function SheetsWarning() {
+  return (
+    <div className="mb-5 flex items-start gap-3 p-4 bg-amber-900/20 border border-amber-700/40 rounded-xl text-sm">
+      <AlertCircle size={16} className="text-amber-400 mt-0.5 shrink-0" />
+      <div>
+        <p className="text-amber-300 font-medium">Google Sheets not connected</p>
+        <p className="text-amber-400/80 mt-0.5">
+          Check that <code className="font-mono text-amber-300">GOOGLE_SPREADSHEET_ID</code> is set in{' '}
+          <code className="font-mono text-amber-300">backend/.env</code> and the spreadsheet is shared with your service account.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [period, setPeriod] = useState<Period>('1y')
 
-  const { data: summary, isLoading: summaryLoading } = useQuery<DashboardSummary>({
+  const { data: summary, isLoading: summaryLoading, isError: summaryError } = useQuery<DashboardSummary>({
     queryKey: ['dashboard'],
     queryFn: () => networthApi.dashboard().then((r) => r.data),
+    retry: false,
   })
 
   const { data: history, isLoading: historyLoading } = useQuery<NetWorthPoint[]>({
     queryKey: ['networth-history', period],
     queryFn: () => networthApi.history(period).then((r) => r.data),
+    retry: false,
   })
 
   if (summaryLoading) return <LoadingSpinner />
 
-  const s = summary!
+  const s = summary ?? EMPTY_SUMMARY
 
   const pieData = [
     { name: 'Investments', value: s.investment_value },
@@ -54,8 +86,10 @@ export default function Dashboard() {
     <div>
       <PageHeader
         title="Dashboard"
-        subtitle={`Last updated ${s.last_updated}`}
+        subtitle={summary ? `Last updated ${s.last_updated}` : 'No data yet'}
       />
+
+      {summaryError && <SheetsWarning />}
 
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
         <div className="col-span-2">
@@ -127,18 +161,12 @@ export default function Dashboard() {
                   formatter={(val: number) => [fmt(val), 'Net Worth']}
                   labelFormatter={fmtDate}
                 />
-                <Line
-                  type="monotone"
-                  dataKey="net_worth"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={false}
-                />
+                <Line type="monotone" dataKey="net_worth" stroke="#3b82f6" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
             <div className="flex items-center justify-center h-48 text-slate-500 text-sm">
-              No history yet — add a net worth snapshot to get started
+              No history yet — record a net worth snapshot in Settings to get started
             </div>
           )}
         </div>

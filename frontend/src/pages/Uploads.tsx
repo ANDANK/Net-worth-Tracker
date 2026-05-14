@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useDropzone } from 'react-dropzone'
-import { Upload, CheckCircle2, AlertCircle, FileText, X } from 'lucide-react'
+import { Upload, CheckCircle2, AlertCircle, FileText, X, Search, ChevronDown, ChevronRight } from 'lucide-react'
 import { transactionsApi, accountsApi, brokersApi } from '../services/api'
 import { Account, ImportResult } from '../types'
 import PageHeader from '../components/PageHeader'
@@ -24,15 +24,19 @@ export default function Uploads() {
   const [step, setStep] = useState<Step>('select')
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([])
   const [result, setResult] = useState<ImportResult | null>(null)
+  const [diagResult, setDiagResult] = useState<any | null>(null)
+  const [diagExpanded, setDiagExpanded] = useState(false)
 
   const { data: accounts = [] } = useQuery<Account[]>({
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list().then((r) => r.data),
+    retry: false,
   })
 
   const { data: brokers = [] } = useQuery({
     queryKey: ['brokers'],
     queryFn: () => brokersApi.list().then((r) => r.data),
+    retry: false,
   })
 
   const onDrop = useCallback((files: File[]) => {
@@ -73,6 +77,20 @@ export default function Uploads() {
     },
   })
 
+  const diagnoseMutation = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData()
+      fd.append('file', file!)
+      fd.append('broker', broker)
+      fd.append('account_id', accountId)
+      return transactionsApi.diagnose(fd).then((r) => r.data)
+    },
+    onSuccess: (data) => {
+      setDiagResult(data)
+      setDiagExpanded(true)
+    },
+  })
+
   const reset = () => {
     setFile(null)
     setBroker('')
@@ -80,6 +98,8 @@ export default function Uploads() {
     setStep('select')
     setPreviewRows([])
     setResult(null)
+    setDiagResult(null)
+    setDiagExpanded(false)
   }
 
   const canPreview = file && broker && accountId
@@ -238,6 +258,85 @@ export default function Uploads() {
               </div>
             )}
           </div>
+          {/* Diagnose button */}
+          <button
+            className="btn-secondary w-full flex items-center justify-center gap-2"
+            onClick={() => diagnoseMutation.mutate()}
+            disabled={diagnoseMutation.isPending}
+          >
+            <Search size={15} />
+            {diagnoseMutation.isPending ? 'Analysing…' : 'Diagnose — what was skipped?'}
+          </button>
+
+          {/* Diagnose result */}
+          {diagResult && (
+            <div className={`card border ${
+              diagResult.skipped_by_unrecognised_action > 0
+                ? 'border-amber-600/40 bg-amber-500/8'
+                : 'border-emerald-600/40 bg-emerald-500/8'
+            }`}>
+              <div className="flex items-start gap-3 mb-3">
+                {diagResult.skipped_by_unrecognised_action > 0
+                  ? <AlertCircle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                  : <CheckCircle2 size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                }
+                <div>
+                  <p className={`text-sm font-semibold ${diagResult.skipped_by_unrecognised_action > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                    {diagResult.skipped_by_unrecognised_action > 0
+                      ? `${diagResult.skipped_by_unrecognised_action} rows skipped — unrecognised action codes`
+                      : 'All action codes recognised — no rows dropped'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {diagResult.parsed_count} of {diagResult.total_rows_in_file} rows parsed · column: <code className="text-slate-300">{diagResult.action_column_used}</code>
+                  </p>
+                </div>
+              </div>
+
+              {/* Unrecognised actions */}
+              {Object.keys(diagResult.unrecognised_actions ?? {}).length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                    Unrecognised (skipped)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(diagResult.unrecognised_actions).map(([code, count]: any) => (
+                      <span key={code} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-900/30 border border-amber-700/40 text-xs">
+                        <span className="font-mono font-semibold text-amber-300">{code}</span>
+                        <span className="text-amber-500">×{count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recognised actions */}
+              <button
+                onClick={() => setDiagExpanded(e => !e)}
+                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors mb-2"
+              >
+                {diagExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                {diagExpanded ? 'Hide' : 'Show'} recognised action codes ({Object.keys(diagResult.recognised_actions ?? {}).length})
+              </button>
+              {diagExpanded && (
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(diagResult.recognised_actions ?? {}).map(([code, count]: any) => (
+                    <span key={code} className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-900/20 border border-emerald-700/30 text-xs">
+                      <span className="font-mono text-emerald-300">{code}</span>
+                      <span className="text-emerald-600">×{count}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {diagResult.skipped_by_unrecognised_action > 0 && (
+                <p className="mt-3 text-xs text-amber-400/80 bg-amber-900/20 rounded-lg p-2.5">
+                  <strong>Action:</strong> The parser has been updated to handle more action codes.
+                  Re-upload this same file — previously skipped rows will now be imported, and your P&L will be corrected.
+                </p>
+              )}
+            </div>
+          )}
+
           <button className="btn-primary w-full" onClick={reset}>Import Another File</button>
         </div>
       )}

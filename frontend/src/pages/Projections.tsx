@@ -124,7 +124,7 @@ export default function Projections() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-slate-400">Inflation-adjusted</span>
-                  <span className="text-base font-bold text-violet-400">{fmt(result.real_values.at(-1) ?? 0)}</span>
+                  <span className="text-base font-bold text-violet-400">{fmt(result.real_values[result.real_values.length - 1] ?? 0)}</span>
                 </div>
                 {result.fire_age && (
                   <div className="flex justify-between items-center">

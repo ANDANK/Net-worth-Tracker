@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Wallet, ArrowLeftRight, Upload,
-  BarChart2, TrendingUp, Settings, LogOut,
+  BarChart2, TrendingUp, Settings, LogOut, HelpCircle, Activity,
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -11,8 +11,10 @@ const nav = [
   { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
   { to: '/uploads', icon: Upload, label: 'Uploads' },
   { to: '/analytics', icon: BarChart2, label: 'Analytics' },
+  { to: '/pnl', icon: Activity, label: 'P&L' },
   { to: '/projections', icon: TrendingUp, label: 'Projections' },
   { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/help', icon: HelpCircle, label: 'Help' },
 ]
 
 interface SidebarProps {

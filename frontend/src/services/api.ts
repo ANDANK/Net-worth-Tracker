@@ -37,6 +37,7 @@ export const transactionsApi = {
   list: (params?: object) => api.get('/transactions/', { params }),
   preview: (formData: FormData) => api.post('/transactions/preview', formData),
   import: (formData: FormData) => api.post('/transactions/import', formData),
+  diagnose: (formData: FormData) => api.post('/transactions/diagnose', formData),
 }
 
 export const manualApi = {
@@ -58,5 +59,17 @@ export const projectionsApi = {
 }
 
 export const brokersApi = {
-  list: () => api.get('/brokers'),
+  list: (includeInactive = false) =>
+    api.get('/brokers/', { params: includeInactive ? { include_inactive: true } : {} }),
+  add: (data: { broker_id: string; broker_name: string }) =>
+    api.post('/brokers/', data),
+  toggle: (brokerId: string, active: boolean) =>
+    api.patch(`/brokers/${brokerId}`, { active }),
+}
+
+export const pnlApi = {
+  get: (params: { account_id?: string; period?: string; ticker?: string }) =>
+    api.get('/pnl/', { params }),
+  validate: (account_id?: string) =>
+    api.get('/pnl/validate', { params: account_id ? { account_id } : {} }),
 }

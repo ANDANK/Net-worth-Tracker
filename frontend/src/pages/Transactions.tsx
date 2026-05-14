@@ -37,6 +37,7 @@ export default function Transactions() {
   const { data: transactions = [], isLoading } = useQuery<Transaction[]>({
     queryKey: ['transactions', params],
     queryFn: () => transactionsApi.list(params).then((r) => r.data),
+    retry: false,
   })
 
   return (

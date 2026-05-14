@@ -32,6 +32,7 @@ export default function Analytics() {
   const { data: history = [], isLoading } = useQuery<NetWorthPoint[]>({
     queryKey: ['networth-history', period],
     queryFn: () => networthApi.history(period).then((r) => r.data),
+    retry: false,
   })
 
   const stackedData = history.map((h) => ({

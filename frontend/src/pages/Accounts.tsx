@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, CheckCircle2, XCircle } from 'lucide-react'
-import { accountsApi, manualApi } from '../services/api'
+import { CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { accountsApi, manualApi, brokersApi } from '../services/api'
 import { Account, AccountType, Owner, TaxStatus } from '../types'
 import PageHeader from '../components/PageHeader'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -40,13 +40,35 @@ const TAX_MAP: Record<AccountType, TaxStatus> = {
   real_estate: 'taxable',
 }
 
-function AddAccountModal({ onClose, onSave }: { onClose: () => void; onSave: (d: object) => void }) {
+function errorMessage(err: unknown): string {
+  const e = err as any
+  return e?.response?.data?.detail ?? e?.message ?? 'Unknown error'
+}
+
+function AddAccountModal({
+  onClose,
+  onSave,
+  saving,
+  error,
+}: {
+  onClose: () => void
+  onSave: (d: object) => void
+  saving: boolean
+  error: string | null
+}) {
   const [form, setForm] = useState({
     broker_name: '',
     account_name: '',
     account_type: 'brokerage' as AccountType,
     owner: 'self' as Owner,
     tax_status: 'taxable' as TaxStatus,
+  })
+  const [brokerOther, setBrokerOther] = useState(false)
+
+  const { data: brokers = [] } = useQuery({
+    queryKey: ['brokers'],
+    queryFn: () => brokersApi.list().then((r) => r.data),
+    retry: false,
   })
 
   const set = (k: string, v: string) => {
@@ -55,18 +77,67 @@ function AddAccountModal({ onClose, onSave }: { onClose: () => void; onSave: (d:
     setForm(next as typeof form)
   }
 
+  const handleBrokerSelect = (v: string) => {
+    if (v === '__other__') {
+      setBrokerOther(true)
+      set('broker_name', '')
+    } else {
+      setBrokerOther(false)
+      set('broker_name', v)
+    }
+  }
+
+  const canSave = form.broker_name.trim() && form.account_name.trim()
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="card w-full max-w-md">
         <h3 className="text-base font-semibold text-slate-100 mb-4">Add Account</h3>
         <div className="space-y-3">
           <div>
             <label className="label">Broker / Institution</label>
-            <input className="input" value={form.broker_name} onChange={(e) => set('broker_name', e.target.value)} placeholder="e.g. Fidelity" />
+            {brokers.length > 0 ? (
+              <>
+                <select
+                  className="select"
+                  value={brokerOther ? '__other__' : form.broker_name}
+                  onChange={(e) => handleBrokerSelect(e.target.value)}
+                  autoFocus
+                >
+                  <option value="">Select broker…</option>
+                  {brokers.map((b: any) => (
+                    <option key={b.id} value={b.name}>{b.name}</option>
+                  ))}
+                  <option value="__other__">Other (type manually)…</option>
+                </select>
+                {brokerOther && (
+                  <input
+                    className="input mt-2"
+                    value={form.broker_name}
+                    onChange={(e) => set('broker_name', e.target.value)}
+                    placeholder="Enter institution name"
+                    autoFocus
+                  />
+                )}
+              </>
+            ) : (
+              <input
+                className="input"
+                value={form.broker_name}
+                onChange={(e) => set('broker_name', e.target.value)}
+                placeholder="e.g. Fidelity"
+                autoFocus
+              />
+            )}
           </div>
           <div>
             <label className="label">Account Name</label>
-            <input className="input" value={form.account_name} onChange={(e) => set('account_name', e.target.value)} placeholder="e.g. My Roth IRA" />
+            <input
+              className="input"
+              value={form.account_name}
+              onChange={(e) => set('account_name', e.target.value)}
+              placeholder="e.g. My Roth IRA"
+            />
           </div>
           <div>
             <label className="label">Account Type</label>
@@ -93,25 +164,57 @@ function AddAccountModal({ onClose, onSave }: { onClose: () => void; onSave: (d:
             </div>
           </div>
         </div>
+
+        {error && (
+          <div className="mt-3 flex items-start gap-2 p-3 bg-red-900/30 border border-red-700/40 rounded-lg">
+            <AlertCircle size={14} className="text-red-400 mt-0.5 shrink-0" />
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        )}
+
         <div className="flex gap-2 mt-5">
-          <button className="btn-primary flex-1" onClick={() => onSave(form)}>Save</button>
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button
+            className="btn-primary flex-1"
+            onClick={() => onSave(form)}
+            disabled={saving || !canSave}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button className="btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
         </div>
       </div>
     </div>
   )
 }
 
-function ManualEntryModal({ onClose, onSave }: { onClose: () => void; onSave: (d: object) => void }) {
+function ManualEntryModal({
+  onClose,
+  onSave,
+  saving,
+  error,
+}: {
+  onClose: () => void
+  onSave: (d: object) => void
+  saving: boolean
+  error: string | null
+}) {
   const [form, setForm] = useState({ account_name: '', owner: 'self' as Owner, value: '', notes: '' })
+  const canSave = form.account_name.trim() && form.value
+
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="card w-full max-w-md">
         <h3 className="text-base font-semibold text-slate-100 mb-4">Manual Account Entry</h3>
         <div className="space-y-3">
           <div>
             <label className="label">Account Name</label>
-            <input className="input" value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} placeholder="e.g. 401k at Work" />
+            <input
+              className="input"
+              value={form.account_name}
+              onChange={(e) => setForm({ ...form, account_name: e.target.value })}
+              placeholder="e.g. 401k at Work"
+              autoFocus
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -124,17 +227,42 @@ function ManualEntryModal({ onClose, onSave }: { onClose: () => void; onSave: (d
             </div>
             <div>
               <label className="label">Current Value ($)</label>
-              <input className="input" type="number" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} placeholder="0.00" />
+              <input
+                className="input"
+                type="number"
+                value={form.value}
+                onChange={(e) => setForm({ ...form, value: e.target.value })}
+                placeholder="0.00"
+              />
             </div>
           </div>
           <div>
             <label className="label">Notes</label>
-            <input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Optional" />
+            <input
+              className="input"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Optional"
+            />
           </div>
         </div>
+
+        {error && (
+          <div className="mt-3 flex items-start gap-2 p-3 bg-red-900/30 border border-red-700/40 rounded-lg">
+            <AlertCircle size={14} className="text-red-400 mt-0.5 shrink-0" />
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        )}
+
         <div className="flex gap-2 mt-5">
-          <button className="btn-primary flex-1" onClick={() => onSave({ ...form, value: parseFloat(form.value) || 0 })}>Save</button>
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button
+            className="btn-primary flex-1"
+            onClick={() => onSave({ ...form, value: parseFloat(form.value) || 0 })}
+            disabled={saving || !canSave}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button className="btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
         </div>
       </div>
     </div>
@@ -145,25 +273,39 @@ export default function Accounts() {
   const qc = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
   const [showManual, setShowManual] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+  const [manualError, setManualError] = useState<string | null>(null)
 
   const { data: accounts = [], isLoading } = useQuery<Account[]>({
     queryKey: ['accounts'],
     queryFn: () => accountsApi.list().then((r) => r.data),
+    retry: false,
   })
 
   const { data: manualEntries = [] } = useQuery({
     queryKey: ['manual'],
     queryFn: () => manualApi.list().then((r) => r.data),
+    retry: false,
   })
 
   const createAccount = useMutation({
     mutationFn: (data: object) => accountsApi.create(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounts'] }); setShowAdd(false) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] })
+      setShowAdd(false)
+      setAddError(null)
+    },
+    onError: (err) => setAddError(errorMessage(err)),
   })
 
   const addManual = useMutation({
     mutationFn: (data: object) => manualApi.add(data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['manual'] }); setShowManual(false) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['manual'] })
+      setShowManual(false)
+      setManualError(null)
+    },
+    onError: (err) => setManualError(errorMessage(err)),
   })
 
   if (isLoading) return <LoadingSpinner />
@@ -175,8 +317,18 @@ export default function Accounts() {
         subtitle="Manage all your financial accounts"
         action={
           <div className="flex gap-2">
-            <button className="btn-secondary text-sm" onClick={() => setShowManual(true)}>+ Manual Entry</button>
-            <button className="btn-primary text-sm" onClick={() => setShowAdd(true)}>+ Add Account</button>
+            <button
+              className="btn-secondary text-sm"
+              onClick={() => { setManualError(null); setShowManual(true) }}
+            >
+              + Manual Entry
+            </button>
+            <button
+              className="btn-primary text-sm"
+              onClick={() => { setAddError(null); setShowAdd(true) }}
+            >
+              + Add Account
+            </button>
           </div>
         }
       />
@@ -217,6 +369,7 @@ export default function Accounts() {
                 <div>
                   <p className="font-medium text-slate-100">{e.account_name}</p>
                   <p className="text-sm text-slate-400">{e.owner} · {e.entry_date}</p>
+                  {e.notes && <p className="text-xs text-slate-500 mt-0.5">{e.notes}</p>}
                 </div>
                 <p className="text-lg font-bold text-blue-400">${Number(e.value).toLocaleString()}</p>
               </div>
@@ -225,8 +378,22 @@ export default function Accounts() {
         </div>
       )}
 
-      {showAdd && <AddAccountModal onClose={() => setShowAdd(false)} onSave={(d) => createAccount.mutate(d)} />}
-      {showManual && <ManualEntryModal onClose={() => setShowManual(false)} onSave={(d) => addManual.mutate(d)} />}
+      {showAdd && (
+        <AddAccountModal
+          onClose={() => { setShowAdd(false); setAddError(null) }}
+          onSave={(d) => { setAddError(null); createAccount.mutate(d) }}
+          saving={createAccount.isPending}
+          error={addError}
+        />
+      )}
+      {showManual && (
+        <ManualEntryModal
+          onClose={() => { setShowManual(false); setManualError(null) }}
+          onSave={(d) => { setManualError(null); addManual.mutate(d) }}
+          saving={addManual.isPending}
+          error={manualError}
+        />
+      )}
     </div>
   )
 }
