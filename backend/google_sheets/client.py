@@ -277,5 +277,118 @@ class SheetsClient:
     def generate_id(self) -> str:
         return str(uuid.uuid4())
 
+    # ------------------------------------------------------------------ #
+    # Formatting
+    # ------------------------------------------------------------------ #
+
+    def format_transactions_sheet(self) -> dict:
+        """
+        Apply visual formatting to the Transactions sheet using the Sheets API v4
+        batchUpdate endpoint (exposed via gspread's spreadsheet.batch_update()).
+
+        Applies:
+        - Frozen header row
+        - Bold white text on dark header background
+        - Per-row background colour keyed on column D (action type)
+        """
+        ss = self._get_spreadsheet()
+        ws = self._get_or_create_sheet("transactions")
+        sheet_id = ws.id
+
+        # ── Colour palette (RGB 0‥1, dimmed ~30% for dark-mode friendliness) ──
+        _c = lambda r, g, b: {"red": r, "green": g, "blue": b}
+        ACTION_COLORS = {
+            "BUY":         _c(0.06, 0.40, 0.15),   # dark green
+            "SELL":        _c(0.55, 0.06, 0.06),   # dark red
+            "OPTION_BUY":  _c(0.04, 0.28, 0.55),   # dark blue
+            "OPTION_SELL": _c(0.55, 0.18, 0.04),   # dark orange-red
+            "DIVIDEND":    _c(0.50, 0.38, 0.00),   # dark amber
+            "INTEREST":    _c(0.45, 0.38, 0.00),   # dark amber (slightly diff)
+            "DEPOSIT":     _c(0.00, 0.35, 0.32),   # dark teal
+            "WITHDRAWAL":  _c(0.55, 0.28, 0.00),   # dark orange
+            "TRANSFER":    _c(0.25, 0.25, 0.25),   # dark gray
+            "SPLIT":       _c(0.22, 0.22, 0.30),   # dark blue-gray
+            "OTHER":       _c(0.25, 0.10, 0.42),   # dark purple
+            "DUPLICATE":   _c(0.30, 0.30, 0.30),   # medium gray
+        }
+
+        num_cols = len(HEADERS["transactions"])   # 12 columns
+
+        requests: list[dict] = []
+
+        # 1. Freeze header row
+        requests.append({
+            "updateSheetProperties": {
+                "properties": {
+                    "sheetId": sheet_id,
+                    "gridProperties": {"frozenRowCount": 1},
+                },
+                "fields": "gridProperties.frozenRowCount",
+            }
+        })
+
+        # 2. Style header row — bold white on near-black
+        requests.append({
+            "repeatCell": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "startRowIndex": 0,
+                    "endRowIndex": 1,
+                },
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": _c(0.10, 0.10, 0.10),
+                        "textFormat": {
+                            "bold": True,
+                            "foregroundColor": _c(0.95, 0.95, 0.95),
+                        },
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat)",
+            }
+        })
+
+        # 3. One conditional-format rule per action type.
+        #    CUSTOM_FORMULA: =$D2="BUY"  (column D is index 3, 1-indexed = D)
+        #    Applied to the entire data region (all columns, rows 2+).
+        #    Insert at index 0 each time so higher-priority rules come first;
+        #    gspread/Sheets API evaluates rules top-to-bottom and stops at first match.
+        for action, bg_color in ACTION_COLORS.items():
+            requests.append({
+                "addConditionalFormatRule": {
+                    "rule": {
+                        "ranges": [{
+                            "sheetId":          sheet_id,
+                            "startRowIndex":    1,          # row 2 in Sheets (skip header)
+                            "startColumnIndex": 0,
+                            "endColumnIndex":   num_cols,
+                        }],
+                        "booleanRule": {
+                            "condition": {
+                                "type":   "CUSTOM_FORMULA",
+                                "values": [{"userEnteredValue": f'=$D2="{action}"'}],
+                            },
+                            "format": {"backgroundColor": bg_color},
+                        },
+                    },
+                    "index": 0,
+                }
+            })
+
+        # 4. Auto-resize all columns for readability
+        requests.append({
+            "autoResizeDimensions": {
+                "dimensions": {
+                    "sheetId":    sheet_id,
+                    "dimension":  "COLUMNS",
+                    "startIndex": 0,
+                    "endIndex":   num_cols,
+                }
+            }
+        })
+
+        ss.batch_update({"requests": requests})
+        return {"ok": True, "rows_affected": "all", "sheet": "Transactions"}
+
 
 sheets_client = SheetsClient()

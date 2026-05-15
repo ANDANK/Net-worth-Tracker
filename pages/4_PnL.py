@@ -79,14 +79,15 @@ validation = st.session_state["pnl_val"]
 
 # ── Validation banner ─────────────────────────────────────────────────────────
 if validation.get("has_issues"):
-    count   = validation.get("zero_basis_sell_count", 0)
+    count    = validation.get("zero_basis_sell_count", 0)
     inflated = validation.get("total_inflated_gain", 0)
+    # Escape $ so Streamlit doesn't treat them as LaTeX delimiters.
+    inflated_str = fmt_currency(inflated).replace("$", r"\$")
     st.warning(
-        f"⚠️ **Data quality issue:** {count} sell(s) have a $0 cost basis "
+        f"Data quality issue: {count} sell(s) have a \\$0 cost basis "
         f"— likely missing BUY records from a partial import. "
-        f"Estimated inflated gain: **{fmt_currency(inflated)}**. "
-        f"Re-import older transaction history to fix this.",
-        icon="⚠️",
+        f"Estimated inflated gain: {inflated_str}. "
+        f"Re-import older transaction history to fix this."
     )
 
 # ── KPIs ──────────────────────────────────────────────────────────────────────
@@ -222,7 +223,7 @@ if wins + losses > 0:
 
 # ── Zero-basis detail ─────────────────────────────────────────────────────────
 if validation.get("has_issues"):
-    with st.expander("🔍 Zero-basis sells detail"):
+    with st.expander("🔍 Zero-basis sells detail (sells with no matching BUY)"):
         affected = validation.get("affected_tickers", [])
         if affected:
             st.dataframe(pd.DataFrame(affected), use_container_width=True)

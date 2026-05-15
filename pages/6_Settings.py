@@ -12,6 +12,7 @@ require_auth()
 
 from services.brokers import list_brokers, add_broker, set_active
 from services.networth import record_networth_snapshot
+from google_sheets.client import sheets_client
 
 with st.sidebar:
     if st.button("🚪 Sign out", use_container_width=True):
@@ -151,7 +152,32 @@ if save_snap:
         st.error(f"Could not save: {e}")
 
 # ════════════════════════════════════════════════════════════════════════════════
-# Section 3 — About
+# Section 3 — Sheet Formatting
+# ════════════════════════════════════════════════════════════════════════════════
+st.divider()
+st.subheader("Format Transactions Sheet")
+st.caption(
+    "Apply colour-coding and a frozen header to the **Transactions** tab in Google Sheets "
+    "so you can validate records at a glance. "
+    "Rows are coloured by action type: "
+    "🟢 BUY · 🔴 SELL · 🟡 DIVIDEND/INTEREST · 🔵 DEPOSIT · 🟠 WITHDRAWAL · "
+    "🟣 OTHER · ⬛ DUPLICATE. "
+    "Safe to run multiple times — existing data is not changed."
+)
+
+if st.button("🎨 Apply Formatting to Transactions Sheet", type="primary"):
+    with st.spinner("Applying formatting via Sheets API…"):
+        try:
+            result = sheets_client.format_transactions_sheet()
+            st.success(
+                "✅ Transactions sheet formatted! Open Google Sheets to see the changes. "
+                "Conditional colours, frozen header row, and auto-resized columns applied."
+            )
+        except Exception as e:
+            st.error(f"Formatting failed: {e}")
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Section 4 — About
 # ════════════════════════════════════════════════════════════════════════════════
 st.divider()
 st.subheader("About")

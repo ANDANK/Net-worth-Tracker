@@ -100,6 +100,13 @@ rec_acts     = diag.get("recognised_actions", {})
 
 total_to_write = will_imp + dup_upload + other_count
 
+# ── Sheets-connection notice ───────────────────────────────────────────────────
+if not diag.get("sheets_connected"):
+    st.warning(
+        "Google Sheets could not be reached — duplicate detection is disabled. "
+        "All rows will be treated as new."
+    )
+
 # ── Summary metrics ───────────────────────────────────────────────────────────
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Rows in file",            total)
@@ -198,8 +205,11 @@ else:
     if other_count: label_parts.append(f"{other_count} OTHER")
 
     st.caption(
-        f"Will write **{total_to_write} rows** to Google Sheets: {' · '.join(label_parts)}. "
-        "DUPLICATE and OTHER rows are excluded from P&L and net worth."
+        f"Will write approximately **{total_to_write} rows** to Google Sheets: "
+        f"{' · '.join(label_parts)}. "
+        "DUPLICATE and OTHER rows are excluded from P&L and net worth. "
+        "_Note: the duplicate count is an estimate — the actual count at upload time "
+        "may differ slightly if the sheet changed between analysis and import._"
     )
 
     if st.button(f"✅ Upload {total_to_write} rows to Google Sheets", type="primary"):
