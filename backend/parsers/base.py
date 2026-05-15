@@ -166,8 +166,49 @@ class BaseParser(ABC):
         }
 
     # ------------------------------------------------------------------ #
+    # ID de-duplication (same-day identical lots from broker order splits)
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _ensure_unique_ids(transactions: list) -> list:
+        """
+        A broker sometimes fills one order as multiple identical lots on the same day
+        (e.g. buy-4 → buy-2 + buy-2).  All lots produce the same SHA-256 transaction_id
+        because every field is identical.  The second upload would wrongly mark the
+        second lot as a DUPLICATE.
+
+        Fix: scan the list in order; if a hash appears more than once, suffix the
+        second+ occurrence with -2, -3, …  The result is deterministic for a given
+        file, so re-importing the same file still detects all occurrences as duplicates.
+        """
+        seen: dict[str, int] = {}
+        for tx in transactions:
+            h = tx.transaction_id
+            if h not in seen:
+                seen[h] = 1
+            else:
+                seen[h] += 1
+                tx.transaction_id = f"{h}-{seen[h]}"
+        return transactions
+
+    # ------------------------------------------------------------------ #
     # Cleaning helpers
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def clean_ticker(val) -> "Optional[str]":
+        """
+        Safely parse a ticker/symbol cell.
+        Returns None for blank, NaN, N/A, None, '-' or any other non-ticker value.
+        Prevents the common pandas bug where an empty cell reads as float('nan')
+        which str() converts to the literal string 'nan'.
+        """
+        if val is None:
+            return None
+        s = str(val).strip()
+        if not s or s.lower() in ("nan", "n/a", "none", "-", "null", "na", ""):
+            return None
+        return s
 
     @staticmethod
     def clean_amount(val) -> float:

@@ -50,7 +50,7 @@ class VanguardParser(BaseParser):
                 action = ACTION_MAP.get(raw_action, TransactionType.OTHER)
 
                 date   = self.normalize_date(row.get("Trade date", row.get("Date", "")))
-                ticker = str(row.get("Symbol", row.get("Ticker symbol", ""))).strip() or None
+                ticker = self.clean_ticker(row.get("Symbol", row.get("Ticker symbol", "")))
                 qty    = self.clean_qty(row.get("Shares", row.get("Quantity", "")))
                 price  = self.clean_amount(row.get("Share price", row.get("Price", "")))
                 fees   = self.clean_amount(row.get("Commission", 0))
@@ -72,7 +72,7 @@ class VanguardParser(BaseParser):
                     "raw_action": raw_action,
                     "error": str(e)[:200],
                 })
-        return transactions
+        return self._ensure_unique_ids(transactions)
 
     def diagnose(self, df: pd.DataFrame) -> dict:
         df.columns = [str(c).strip() for c in df.columns]

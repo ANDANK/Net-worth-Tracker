@@ -47,6 +47,8 @@ ACTION_MAP = {
     "SPC":         TransactionType.TRANSFER,  # Stock Position Correction
     "CONV":        TransactionType.TRANSFER,  # Conversion
     "OEXP":        TransactionType.TRANSFER,  # Option Expiration (worthless)
+    "OASGN":       TransactionType.TRANSFER,  # Option Assignment (shares delivered at strike)
+    "OEXCS":       TransactionType.TRANSFER,  # Option Exercise (you exercise your long option)
     "SPL":         TransactionType.SPLIT,     # Stock Split
     "RECSPL":      TransactionType.SPLIT,     # Reverse Split
 }
@@ -75,7 +77,7 @@ class RobinhoodParser(BaseParser):
                 action = ACTION_MAP.get(raw_action, TransactionType.OTHER)
 
                 date   = self.normalize_date(row.get("Date", row.get("Process Date", "")))
-                ticker = str(row.get("Instrument", row.get("Symbol", ""))).strip() or None
+                ticker = self.clean_ticker(row.get("Instrument", row.get("Symbol", "")))
                 qty    = self.clean_qty(row.get("Quantity", row.get("Shares", "")))
                 price  = self.clean_amount(row.get("Price", ""))
                 fees   = self.clean_amount(row.get("Fees & Comm", row.get("Fees", 0)))
@@ -97,7 +99,7 @@ class RobinhoodParser(BaseParser):
                     "raw_action": raw_action,
                     "error": str(e)[:200],
                 })
-        return transactions
+        return self._ensure_unique_ids(transactions)
 
     @classmethod
     def diagnose(cls, df: pd.DataFrame) -> dict:

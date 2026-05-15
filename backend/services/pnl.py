@@ -31,12 +31,22 @@ def _f(v) -> float:
 
 
 def _s(val) -> str:
-    """NaN-safe string: float('nan') from Sheets reads as truthy but can't be strip()ped."""
+    """
+    NaN-safe string for values read back from Google Sheets.
+
+    Two failure modes we must guard against:
+    1. float('nan') — pandas / gspread can return actual NaN floats for empty cells.
+       NaN is truthy in Python so  `nan or ""`  returns  nan  not  "".
+    2. The *string* "nan" — if a ticker was stored as the literal text "nan"
+       (because  str(float('nan')) == "nan"  slipped through at import time),
+       it must also map to "" so it doesn't pollute FIFO queues or P&L buckets.
+    """
     if val is None:
         return ""
     if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
         return ""
-    return str(val).strip()
+    s = str(val).strip()
+    return "" if s.lower() == "nan" else s
 
 
 def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) -> dict:

@@ -52,7 +52,7 @@ class ETradeParser(BaseParser):
                 action = self._map_action(raw_action)
 
                 date   = self.normalize_date(row.get("Date", ""))
-                ticker = str(row.get("Symbol", "")).strip() or None
+                ticker = self.clean_ticker(row.get("Symbol", ""))
                 qty    = self.clean_qty(row.get("Quantity", ""))
                 price  = self.clean_amount(row.get("Price", ""))
                 fees   = self.clean_amount(row.get("Commission", row.get("Fees", 0)))
@@ -74,7 +74,7 @@ class ETradeParser(BaseParser):
                     "raw_action": raw_action,
                     "error": str(e)[:200],
                 })
-        return transactions
+        return self._ensure_unique_ids(transactions)
 
     def _map_action(self, raw: str) -> TransactionType:
         raw_lower = raw.lower()

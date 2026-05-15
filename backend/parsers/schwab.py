@@ -63,7 +63,7 @@ class SchwabParser(BaseParser):
 
                 date_raw = row.get("Date", row.get("Settlement Date", ""))
                 date   = self.normalize_date(str(date_raw).replace(" as of ", " ").split(" as")[0])
-                ticker = str(row.get("Symbol", "")).strip() or None
+                ticker = self.clean_ticker(row.get("Symbol", ""))
                 qty    = self.clean_qty(row.get("Quantity", ""))
                 price  = self.clean_amount(row.get("Price", ""))
                 fees   = self.clean_amount(row.get("Fees & Comm", row.get("Commission", 0)))
@@ -85,7 +85,7 @@ class SchwabParser(BaseParser):
                     "raw_action": raw_action,
                     "error": str(e)[:200],
                 })
-        return transactions
+        return self._ensure_unique_ids(transactions)
 
     def _map_action(self, raw: str) -> TransactionType:
         raw_lower = raw.lower()

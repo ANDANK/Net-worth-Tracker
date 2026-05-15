@@ -56,7 +56,7 @@ class FidelityParser(BaseParser):
                 action = self._map_action(raw_action.upper())
 
                 date   = self.normalize_date(row.get("Run Date", row.get("Date", "")))
-                ticker = str(row.get("Symbol", "")).strip() or None
+                ticker = self.clean_ticker(row.get("Symbol", ""))
                 qty    = self.clean_qty(row.get("Quantity", ""))
                 price  = self.clean_amount(row.get("Price ($)", row.get("Price", "")))
                 fees   = self.clean_amount(row.get("Commission ($)", row.get("Fees", 0)))
@@ -78,7 +78,7 @@ class FidelityParser(BaseParser):
                     "raw_action": raw_action,
                     "error": str(e)[:200],
                 })
-        return transactions
+        return self._ensure_unique_ids(transactions)
 
     def _map_action(self, raw_upper: str) -> TransactionType:
         for key, val in ACTION_MAP.items():
