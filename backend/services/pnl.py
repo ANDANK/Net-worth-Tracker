@@ -87,17 +87,25 @@ def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) 
         total = _f(tx.get("total_amount"))
         in_period = not period_start or date_str >= period_start
 
-        if action == "BUY" and ticker and qty > 0:
-            # Derive per-share cost; prefer explicit price, fall back to total/qty
-            per_share = price if price > 0 else (abs(total) / qty if qty else 0.0)
-            buy_queues[ticker].append([qty, per_share])
+        # ------------------------------------------------------------------
+        # Effective quantity: if Quantity field is blank/zero in Sheets,
+        # infer from total_amount / price.  This handles rows where the
+        # broker CSV had no Quantity column (those rows contribute to the
+        # pivot total_amount sum but were silently skipped in FIFO).
+        # ------------------------------------------------------------------
+        qty_eff = qty if qty > 0 else (
+            abs(total) / price if (price > 0 and total != 0) else 0.0
+        )
 
-        elif action == "SELL" and ticker and qty > 0:
-            proceeds = abs(total) if total != 0 else max(qty * price - fees, 0.0)
+        if action == "BUY" and ticker and qty_eff > 0:
+            per_share = price if price > 0 else (abs(total) / qty_eff)
+            buy_queues[ticker].append([qty_eff, per_share])
 
-            # FIFO cost lookup
+        elif action == "SELL" and ticker and qty_eff > 0:
+            proceeds = abs(total) if total != 0 else max(qty_eff * price - fees, 0.0)
+
             queue = buy_queues[ticker]
-            remaining = qty
+            remaining = qty_eff
             cost = 0.0
             while remaining > 0.0001 and queue:
                 lot_qty, lot_price = queue[0]
@@ -115,6 +123,26 @@ def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) 
                 ticker_proceeds[ticker] += proceeds
                 ticker_cost_used[ticker] += cost
                 date_buckets[date_str]["realized"] += gain
+
+        elif action == "OPTION_BUY" and ticker:
+            # Premium paid for opening/closing an option — direct expense.
+            # Options don't use stock FIFO; BTO/BTC cost is a realised loss
+            # regardless of whether a matching close or expiry exists.
+            opt_cost = abs(total)
+            if in_period and opt_cost > 0 and (not ticker_upper or ticker == ticker_upper):
+                ticker_realized[ticker] -= opt_cost
+                ticker_cost_used[ticker] += opt_cost
+                date_buckets[date_str]["realized"] -= opt_cost
+
+        elif action == "OPTION_SELL" and ticker:
+            # Premium received from STO / STC / OCA — direct income.
+            # No matching BUY required; expired/assigned options are
+            # already fully settled at this point.
+            opt_income = abs(total)
+            if in_period and opt_income > 0 and (not ticker_upper or ticker == ticker_upper):
+                ticker_realized[ticker] += opt_income
+                ticker_proceeds[ticker] += opt_income
+                date_buckets[date_str]["realized"] += opt_income
 
         elif action == "DIVIDEND":
             div_amount = abs(total)
@@ -212,21 +240,25 @@ def validate_pnl(account_id: str = None) -> dict:
         total  = _f(tx.get("total_amount"))
         date_str = tx.get("date", "")
 
-        if action == "BUY" and ticker and qty > 0:
-            per_share = price if price > 0 else (abs(total) / qty if qty else 0.0)
-            buy_queues[ticker].append([qty, per_share])
-            ticker_buy_rows[ticker]  += 1
-            ticker_buy_qty[ticker]   += qty
-            ticker_buy_value[ticker] += qty * per_share
+        qty_eff = qty if qty > 0 else (
+            abs(total) / price if (price > 0 and total != 0) else 0.0
+        )
 
-        elif action == "SELL" and ticker and qty > 0:
-            proceeds = abs(total) if total != 0 else qty * price
+        if action == "BUY" and ticker and qty_eff > 0:
+            per_share = price if price > 0 else (abs(total) / qty_eff)
+            buy_queues[ticker].append([qty_eff, per_share])
+            ticker_buy_rows[ticker]  += 1
+            ticker_buy_qty[ticker]   += qty_eff
+            ticker_buy_value[ticker] += qty_eff * per_share
+
+        elif action == "SELL" and ticker and qty_eff > 0:
+            proceeds = abs(total) if total != 0 else qty_eff * price
             ticker_sell_rows[ticker]  += 1
-            ticker_sell_qty[ticker]   += qty
+            ticker_sell_qty[ticker]   += qty_eff
             ticker_sell_value[ticker] += proceeds
 
             queue = buy_queues[ticker]
-            remaining = qty
+            remaining = qty_eff
             cost = 0.0
             while remaining > 0.0001 and queue:
                 lot_qty, lot_price = queue[0]
@@ -242,7 +274,7 @@ def validate_pnl(account_id: str = None) -> dict:
                 zero_basis.append({
                     "date":          date_str,
                     "ticker":        ticker,
-                    "quantity":      qty,
+                    "quantity":      qty_eff,
                     "proceeds":      round(proceeds, 2),
                     "inflated_gain": round(proceeds, 2),
                     "account_id":    tx.get("account_id", ""),
@@ -288,4 +320,138 @@ def validate_pnl(account_id: str = None) -> dict:
         "total_inflated_gain":   round(total_inflated, 2),
         "affected_tickers":      affected,
         "sample_sells":          zero_basis[:30],
+    }
+
+
+def trace_ticker_fifo(ticker: str, account_id: str = None) -> dict:
+    """
+    Step-by-step FIFO trace for one ticker — returns every relevant transaction
+    in date order, showing whether each BUY entered the queue or was skipped,
+    and for each SELL how much cost was matched vs how many shares had no buy.
+
+    Use this to diagnose why cost basis looks wrong for a specific ticker.
+    """
+    ticker_upper = ticker.upper().strip()
+    txs = list_transactions(account_id=account_id, limit=50000)
+
+    relevant = sorted(
+        [tx for tx in txs
+         if _s(tx.get("ticker")).upper() == ticker_upper
+         and _s(tx.get("action")) in _PNL_ACTIONS],
+        key=lambda x: x.get("date", ""),
+    )
+
+    buy_queue: list = []
+    events:    list = []
+    total_buy_value   = 0.0
+    total_proceeds    = 0.0
+    total_cost_used   = 0.0
+    total_opt_pl      = 0.0
+    skipped_zero_qty  = 0
+
+    for tx in relevant:
+        action   = _s(tx.get("action"))
+        date_str = tx.get("date", "")
+        qty      = _f(tx.get("quantity"))
+        price    = _f(tx.get("price"))
+        total    = _f(tx.get("total_amount"))
+        fees     = _f(tx.get("fees"))
+
+        qty_eff = qty if qty > 0 else (
+            abs(total) / price if (price > 0 and total != 0) else 0.0
+        )
+
+        q_len  = len(buy_queue)
+        q_qty  = round(sum(r[0] for r in buy_queue), 4)
+        q_val  = round(sum(r[0] * r[1] for r in buy_queue), 2)
+
+        if action == "BUY":
+            if qty_eff > 0:
+                per_share = price if price > 0 else abs(total) / qty_eff
+                buy_queue.append([qty_eff, per_share])
+                total_buy_value += qty_eff * per_share
+                events.append({
+                    "date": date_str, "action": "BUY",
+                    "qty": round(qty_eff, 4),
+                    "price": round(per_share, 4),
+                    "amount": round(abs(total), 2),
+                    "note": "queued" + (" [qty inferred]" if qty <= 0 else ""),
+                    "queue_qty_after": round(q_qty + qty_eff, 4),
+                    "queue_value_after": round(q_val + qty_eff * per_share, 2),
+                })
+            else:
+                skipped_zero_qty += 1
+                events.append({
+                    "date": date_str, "action": "BUY",
+                    "qty": 0, "price": round(price, 4),
+                    "amount": round(abs(total), 2),
+                    "note": "⚠️ SKIPPED — qty=0, cannot infer (price and total both 0?)",
+                    "queue_qty_after": q_qty,
+                    "queue_value_after": q_val,
+                })
+
+        elif action == "SELL" and qty_eff > 0:
+            proceeds  = abs(total) if total != 0 else qty_eff * price
+            remaining = qty_eff
+            cost      = 0.0
+            while remaining > 0.0001 and buy_queue:
+                lot_qty, lot_price = buy_queue[0]
+                used = min(lot_qty, remaining)
+                cost += used * lot_price
+                remaining -= used
+                buy_queue[0][0] -= used
+                if buy_queue[0][0] <= 0.0001:
+                    buy_queue.pop(0)
+            gain = proceeds - cost
+            total_proceeds  += proceeds
+            total_cost_used += cost
+            note = f"gain {gain:+,.2f}"
+            if remaining > 0.001:
+                note += f"  ⚠️ {remaining:.4f} shares had NO matching BUY (missing history?)"
+            events.append({
+                "date": date_str, "action": "SELL",
+                "qty": round(qty_eff, 4),
+                "price": round(price, 4),
+                "amount": round(proceeds, 2),
+                "cost_matched": round(cost, 2),
+                "gain": round(gain, 2),
+                "unmatched_qty": round(remaining, 4),
+                "note": note,
+                "queue_qty_after": round(sum(r[0] for r in buy_queue), 4),
+                "queue_value_after": round(sum(r[0]*r[1] for r in buy_queue), 2),
+            })
+
+        elif action in ("OPTION_BUY", "OPTION_SELL"):
+            opt_pl = abs(total) * (1 if action == "OPTION_SELL" else -1)
+            total_opt_pl += opt_pl
+            events.append({
+                "date": date_str, "action": action,
+                "qty": round(qty_eff, 4),
+                "price": round(price, 4),
+                "amount": round(abs(total), 2),
+                "note": f"option P&L {opt_pl:+,.2f} (direct, no FIFO)",
+                "queue_qty_after": q_qty,
+                "queue_value_after": q_val,
+            })
+
+    remaining_lots = [
+        {"qty": round(r[0], 4), "cost_per_share": round(r[1], 4),
+         "lot_value": round(r[0] * r[1], 2)}
+        for r in buy_queue
+    ]
+
+    return {
+        "ticker":            ticker_upper,
+        "total_transactions": len(relevant),
+        "skipped_zero_qty":  skipped_zero_qty,
+        "total_buy_value":   round(total_buy_value, 2),
+        "total_proceeds":    round(total_proceeds, 2),
+        "total_cost_used":   round(total_cost_used, 2),
+        "stock_gain":        round(total_proceeds - total_cost_used, 2),
+        "option_pl":         round(total_opt_pl, 2),
+        "total_pl":          round(total_proceeds - total_cost_used + total_opt_pl, 2),
+        "remaining_lots":    remaining_lots,
+        "remaining_qty":     round(sum(r[0] for r in buy_queue), 4),
+        "remaining_value":   round(sum(r[0]*r[1] for r in buy_queue), 2),
+        "events":            events,
     }

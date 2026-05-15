@@ -13,7 +13,7 @@ from utils.auth import require_auth
 from utils.fmt import fmt_currency, fmt_pct
 require_auth()
 
-from services.pnl import compute_pnl, validate_pnl
+from services.pnl import compute_pnl, validate_pnl, trace_ticker_fifo
 from services.accounts import list_accounts
 
 with st.sidebar:
@@ -260,3 +260,65 @@ if validation.get("has_issues"):
                 },
                 hide_index=True,
             )
+
+# ── FIFO tracer ───────────────────────────────────────────────────────────────
+st.divider()
+st.subheader("🔬 FIFO Trace — step-by-step debug for one ticker")
+st.caption(
+    "Enter any ticker to see every BUY and SELL in date order, "
+    "exactly what entered the FIFO queue, what was matched, and what was skipped. "
+    "This will show precisely why cost basis looks wrong for a specific stock."
+)
+trace_col1, trace_col2 = st.columns([2, 1])
+with trace_col1:
+    trace_ticker = st.text_input("Ticker to trace", placeholder="e.g. AMZN").strip().upper()
+with trace_col2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    run_trace = st.button("🔬 Run FIFO Trace", type="secondary")
+
+if run_trace and trace_ticker:
+    with st.spinner(f"Tracing FIFO for {trace_ticker}…"):
+        try:
+            tr = trace_ticker_fifo(
+                trace_ticker,
+                account_id=st.session_state.get("pnl_account_id"),
+            )
+        except Exception as e:
+            st.error(f"Trace error: {e}")
+            tr = None
+
+    if tr:
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Transactions", tr["total_transactions"])
+        c2.metric("Total BUY value", f"${tr['total_buy_value']:,.0f}")
+        c3.metric("Total proceeds", f"${tr['total_proceeds']:,.0f}")
+        c4.metric("Stock gain", f"${tr['stock_gain']:+,.0f}")
+        c5.metric("Option P&L", f"${tr['option_pl']:+,.0f}")
+
+        if tr["skipped_zero_qty"]:
+            st.error(
+                f"⚠️ **{tr['skipped_zero_qty']} BUY rows were SKIPPED** because "
+                f"Quantity = 0 and could not be inferred from Amount/Price. "
+                f"These rows contribute to the pivot total but NOT to FIFO cost. "
+                f"Check the Transactions sheet — those rows need a valid Quantity."
+            )
+
+        if tr["remaining_qty"] > 0.001:
+            st.info(
+                f"After all sells, **{tr['remaining_qty']:.4f} shares** remain "
+                f"in the FIFO queue (cost \\${tr['remaining_value']:,.2f}). "
+                f"If you have no open positions, these are unmatched BUY lots — "
+                f"likely shares transferred out via ACATS or sold by a transaction "
+                f"not recorded as SELL (e.g., option assignment)."
+            )
+
+        total_pl = tr["total_pl"]
+        st.success(
+            f"**{trace_ticker} total P&L: \\${total_pl:+,.2f}** "
+            f"(stock \\${tr['stock_gain']:+,.2f} + options \\${tr['option_pl']:+,.2f})"
+        )
+
+        events_df = pd.DataFrame(tr["events"])
+        if not events_df.empty:
+            with st.expander("📋 Full transaction trace", expanded=True):
+                st.dataframe(events_df, use_container_width=True, height=400, hide_index=True)
