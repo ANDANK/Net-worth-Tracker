@@ -51,160 +51,128 @@ def _s(val) -> str:
 
 def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) -> dict:
     """
-    Walk all transactions in date order.
-    - Maintain FIFO buy queues per ticker for accurate cost basis.
-    - Accumulate realized P&L and dividends only within the requested period.
-    Returns summary metrics, per-ticker breakdown, and a cumulative timeline.
+    Compute P&L using total_amount sums — identical to a simple pivot table.
+
+    Realized gain per ticker = Σ SELL proceeds − Σ BUY cost
+                               + Σ OPTION_SELL income − Σ OPTION_BUY premium
+
+    WHY NOT FIFO?
+    FIFO requires a Quantity field on every row to match sell lots back to
+    specific buy lots.  Many broker CSVs omit Quantity (or store it in a
+    non-standard column), so those BUY rows get silently excluded from cost
+    basis — producing wildly inflated gains.  total_amount is *always*
+    populated correctly, so summing dollars is both simpler and more reliable.
+    FIFO is still available via trace_ticker_fifo() for step-by-step debugging.
+
+    Period note: all transactions dated within the period are included.
+    For "All time" (period=None) this is exact.  For sub-periods, buys and
+    sells that straddle the period boundary may shift slightly — use "All time"
+    for the most accurate lifetime P&L.
     """
     txs = list_transactions(account_id=account_id, limit=50000)
-    # Ticker filter: still walk ALL buys for accurate FIFO, but restrict P&L output
     ticker_upper = ticker.upper().strip() if ticker else None
-    txs_sorted = sorted(txs, key=lambda x: x.get("date", ""))
-
+    txs_sorted   = sorted(txs, key=lambda x: x.get("date", ""))
     period_start = _period_start(period)
 
-    # FIFO buy queues: ticker -> [[remaining_qty, price_per_share], ...]
-    buy_queues: dict[str, list] = defaultdict(list)
+    # Per-ticker dollar accumulators
+    ticker_buy:    dict[str, float] = defaultdict(float)   # Σ BUY total_amount
+    ticker_sell:   dict[str, float] = defaultdict(float)   # Σ SELL total_amount
+    ticker_opt_pl: dict[str, float] = defaultdict(float)   # Σ OPTION_SELL − Σ OPTION_BUY
+    ticker_divs:   dict[str, float] = defaultdict(float)   # Σ DIVIDEND
 
-    # Period-scoped accumulators
-    ticker_realized: dict[str, float] = defaultdict(float)
-    ticker_proceeds: dict[str, float] = defaultdict(float)
-    ticker_cost_used: dict[str, float] = defaultdict(float)
-    ticker_dividends: dict[str, float] = defaultdict(float)
+    # Date-level buckets for the cumulative timeline chart
+    date_realized: dict[str, float] = defaultdict(float)
+    date_dividend: dict[str, float] = defaultdict(float)
 
-    # Raw events for timeline
-    date_buckets: dict[str, dict] = defaultdict(lambda: {"realized": 0.0, "dividend": 0.0})
+    buys_in_period = 0.0   # "Capital Deployed" KPI
 
     for tx in txs_sorted:
         action = _s(tx.get("action"))
         if action not in _PNL_ACTIONS:
-            continue                         # skip OTHER, DEPOSIT, TRANSFER, etc.
-        ticker = _s(tx.get("ticker"))
+            continue
+        t        = _s(tx.get("ticker"))
         date_str = tx.get("date", "")
-        qty = _f(tx.get("quantity"))
-        price = _f(tx.get("price"))
-        fees = _f(tx.get("fees"))
-        total = _f(tx.get("total_amount"))
+        total    = abs(_f(tx.get("total_amount")))
         in_period = not period_start or date_str >= period_start
+        t_match   = not ticker_upper or t == ticker_upper
 
-        # ------------------------------------------------------------------
-        # Effective quantity: if Quantity field is blank/zero in Sheets,
-        # infer from total_amount / price.  This handles rows where the
-        # broker CSV had no Quantity column (those rows contribute to the
-        # pivot total_amount sum but were silently skipped in FIFO).
-        # ------------------------------------------------------------------
-        qty_eff = qty if qty > 0 else (
-            abs(total) / price if (price > 0 and total != 0) else 0.0
-        )
+        if not in_period:
+            continue
 
-        if action == "BUY" and ticker and qty_eff > 0:
-            per_share = price if price > 0 else (abs(total) / qty_eff)
-            buy_queues[ticker].append([qty_eff, per_share])
+        if action == "BUY" and t_match:
+            ticker_buy[t]  += total
+            buys_in_period += total
+            # BUYs flow out of cash — show as negative in the cumulative chart
+            date_realized[date_str] -= total
 
-        elif action == "SELL" and ticker and qty_eff > 0:
-            proceeds = abs(total) if total != 0 else max(qty_eff * price - fees, 0.0)
+        elif action == "SELL" and t_match:
+            ticker_sell[t] += total
+            date_realized[date_str] += total
 
-            queue = buy_queues[ticker]
-            remaining = qty_eff
-            cost = 0.0
-            while remaining > 0.0001 and queue:
-                lot_qty, lot_price = queue[0]
-                used = min(lot_qty, remaining)
-                cost += used * lot_price
-                remaining -= used
-                queue[0][0] -= used
-                if queue[0][0] <= 0.0001:
-                    queue.pop(0)
+        elif action == "OPTION_BUY" and t_match:
+            ticker_opt_pl[t]        -= total   # premium paid = expense
+            date_realized[date_str] -= total
 
-            gain = proceeds - cost
-
-            if in_period and (not ticker_upper or ticker == ticker_upper):
-                ticker_realized[ticker] += gain
-                ticker_proceeds[ticker] += proceeds
-                ticker_cost_used[ticker] += cost
-                date_buckets[date_str]["realized"] += gain
-
-        elif action == "OPTION_BUY" and ticker:
-            # Premium paid for opening/closing an option — direct expense.
-            # Options don't use stock FIFO; BTO/BTC cost is a realised loss
-            # regardless of whether a matching close or expiry exists.
-            opt_cost = abs(total)
-            if in_period and opt_cost > 0 and (not ticker_upper or ticker == ticker_upper):
-                ticker_realized[ticker] -= opt_cost
-                ticker_cost_used[ticker] += opt_cost
-                date_buckets[date_str]["realized"] -= opt_cost
-
-        elif action == "OPTION_SELL" and ticker:
-            # Premium received from STO / STC / OCA — direct income.
-            # No matching BUY required; expired/assigned options are
-            # already fully settled at this point.
-            opt_income = abs(total)
-            if in_period and opt_income > 0 and (not ticker_upper or ticker == ticker_upper):
-                ticker_realized[ticker] += opt_income
-                ticker_proceeds[ticker] += opt_income
-                date_buckets[date_str]["realized"] += opt_income
+        elif action == "OPTION_SELL" and t_match:
+            ticker_opt_pl[t]        += total   # premium received = income
+            date_realized[date_str] += total
 
         elif action == "DIVIDEND":
-            div_amount = abs(total)
-            key = ticker if ticker else "CASH"
-            if in_period and div_amount > 0 and (not ticker_upper or ticker == ticker_upper or key == ticker_upper):
-                ticker_dividends[key] += div_amount
-                date_buckets[date_str]["dividend"] += div_amount
-
-    # --- Cumulative timeline ---
-    timeline = []
-    cum_r = cum_d = 0.0
-    for dt in sorted(date_buckets):
-        cum_r += date_buckets[dt]["realized"]
-        cum_d += date_buckets[dt]["dividend"]
-        timeline.append({
-            "date": dt,
-            "realized": round(cum_r, 2),
-            "dividends": round(cum_d, 2),
-            "total": round(cum_r + cum_d, 2),
-        })
+            key = t if t else "CASH"
+            if not ticker_upper or key == ticker_upper:
+                ticker_divs[key]        += total
+                date_dividend[date_str] += total
 
     # --- Per-ticker summary ---
-    all_tickers = set(ticker_realized) | set(ticker_dividends)
-    by_ticker = []
+    all_tickers = set(ticker_sell) | set(ticker_buy) | set(ticker_opt_pl) | set(ticker_divs)
+    by_ticker   = []
     for t in sorted(all_tickers):
-        r = ticker_realized.get(t, 0.0)
-        d = ticker_dividends.get(t, 0.0)
+        buy_v  = ticker_buy.get(t, 0.0)
+        sell_v = ticker_sell.get(t, 0.0)
+        opt    = ticker_opt_pl.get(t, 0.0)
+        div    = ticker_divs.get(t, 0.0)
+        realized = sell_v - buy_v + opt
         by_ticker.append({
-            "ticker": t,
-            "realized_gain": round(r, 2),
-            "dividend_income": round(d, 2),
-            "total_return": round(r + d, 2),
-            "cost_basis": round(ticker_cost_used.get(t, 0.0), 2),
-            "proceeds": round(ticker_proceeds.get(t, 0.0), 2),
+            "ticker":          t,
+            "realized_gain":   round(realized, 2),
+            "dividend_income": round(div, 2),
+            "total_return":    round(realized + div, 2),
+            "proceeds":        round(sell_v + max(opt, 0.0), 2),
+            "cost_basis":      round(buy_v  + max(-opt, 0.0), 2),
         })
     by_ticker.sort(key=lambda x: abs(x["total_return"]), reverse=True)
 
-    # --- Totals ---
-    total_realized = sum(ticker_realized.values())
-    total_dividends = sum(ticker_dividends.values())
+    total_realized  = sum(x["realized_gain"]   for x in by_ticker)
+    total_dividends = sum(x["dividend_income"] for x in by_ticker)
 
-    winners = [b for b in by_ticker if b["realized_gain"] > 0]
-    losers = [b for b in by_ticker if b["realized_gain"] < 0]
+    # --- Cumulative timeline ---
+    all_dates = sorted(set(date_realized) | set(date_dividend))
+    timeline  = []
+    cum_r = cum_d = 0.0
+    for dt in all_dates:
+        cum_r += date_realized.get(dt, 0.0)
+        cum_d += date_dividend.get(dt, 0.0)
+        timeline.append({
+            "date":      dt,
+            "realized":  round(cum_r, 2),
+            "dividends": round(cum_d, 2),
+            "total":     round(cum_r + cum_d, 2),
+        })
+
+    winners    = [b for b in by_ticker if b["realized_gain"] > 0]
+    losers     = [b for b in by_ticker if b["realized_gain"] < 0]
     sell_count = len(winners) + len(losers)
 
-    buys_in_period = [
-        tx for tx in txs_sorted
-        if tx.get("action") == "BUY"
-        and (not period_start or tx.get("date", "") >= period_start)
-    ]
-    total_invested = sum(abs(_f(t.get("total_amount"))) for t in buys_in_period)
-
     return {
-        "total_realized": round(total_realized, 2),
+        "total_realized":  round(total_realized, 2),
         "total_dividends": round(total_dividends, 2),
-        "total_return": round(total_realized + total_dividends, 2),
-        "total_invested": round(total_invested, 2),
-        "win_count": len(winners),
-        "loss_count": len(losers),
-        "win_rate": round(len(winners) / sell_count * 100, 1) if sell_count else 0.0,
-        "by_ticker": by_ticker[:50],
-        "timeline": timeline,
+        "total_return":    round(total_realized + total_dividends, 2),
+        "total_invested":  round(buys_in_period, 2),
+        "win_count":       len(winners),
+        "loss_count":      len(losers),
+        "win_rate":        round(len(winners) / sell_count * 100, 1) if sell_count else 0.0,
+        "by_ticker":       by_ticker[:50],
+        "timeline":        timeline,
     }
 
 
