@@ -223,7 +223,40 @@ if wins + losses > 0:
 
 # ── Zero-basis detail ─────────────────────────────────────────────────────────
 if validation.get("has_issues"):
-    with st.expander("🔍 Zero-basis sells detail (sells with no matching BUY)"):
+    with st.expander("🔍 Why is the cost basis missing? — per-ticker diagnosis", expanded=True):
         affected = validation.get("affected_tickers", [])
         if affected:
-            st.dataframe(pd.DataFrame(affected), use_container_width=True)
+            st.markdown(
+                "For each affected ticker the table shows how many **BUY** rows vs **SELL** rows "
+                "are in your Transactions sheet.  "
+                "If **sell qty > buy qty** the missing BUYs were either:\n"
+                "- Bought **before your CSV export date range** starts\n"
+                "- Received via **ACATS transfer** (mapped as TRANSFER, not BUY — cost basis unknown)\n"
+                "- Received via **option exercise / assignment** (OEXCS/OASGN — mapped as TRANSFER)\n\n"
+                "**Fix:** export a longer date range from your broker, or manually add the missing BUY rows."
+            )
+            df_aff = pd.DataFrame(affected)
+            # Rename columns for readability
+            col_map = {
+                "ticker":          "Ticker",
+                "buy_rows":        "BUY rows",
+                "sell_rows":       "SELL rows",
+                "buy_qty":         "BUY shares",
+                "sell_qty":        "SELL shares",
+                "buy_value":       "BUY value",
+                "sell_value":      "SELL value (proceeds)",
+                "inflated_gain":   "Phantom gain",
+                "first_sell_date": "First zero-basis sell",
+                "last_sell_date":  "Last zero-basis sell",
+            }
+            df_show = df_aff[[c for c in col_map if c in df_aff.columns]].rename(columns=col_map)
+            st.dataframe(
+                df_show,
+                use_container_width=True,
+                column_config={
+                    "BUY value":            st.column_config.NumberColumn(format="$%.0f"),
+                    "SELL value (proceeds)": st.column_config.NumberColumn(format="$%.0f"),
+                    "Phantom gain":          st.column_config.NumberColumn(format="$%.0f"),
+                },
+                hide_index=True,
+            )

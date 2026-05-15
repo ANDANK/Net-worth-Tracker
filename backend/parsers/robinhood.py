@@ -87,7 +87,7 @@ class RobinhoodParser(BaseParser):
                     amount = qty * price
 
                 transactions.append(ParsedTransaction(
-                    date=date, action=action, total_amount=amount,
+                    date=date, action=action, total_amount=abs(amount),
                     broker=self.broker_name, account_id=account_id,
                     ticker=ticker, quantity=qty,
                     price=price if price else None,

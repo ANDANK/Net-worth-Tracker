@@ -183,15 +183,24 @@ def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) 
 def validate_pnl(account_id: str = None) -> dict:
     """
     Walk all transactions with FIFO and detect sells whose entire cost basis
-    is $0 — these occur when the matching BUY rows were silently dropped
-    during import (unrecognised action codes, parse errors, etc.).
-    Returns a list of affected tickers and an estimate of the inflated P&L.
+    is $0.  Also counts BUY vs SELL rows per ticker so the caller can show
+    the user exactly WHY the cost basis is missing:
+      - fewer BUY rows than SELL rows  → history gap (pre-file or ACATS transfer)
+      - equal rows but still $0 cost  → data/parsing issue
     """
     txs = list_transactions(account_id=account_id, limit=50000)
     txs_sorted = sorted(txs, key=lambda x: x.get("date", ""))
 
     buy_queues: dict[str, list] = defaultdict(list)
     zero_basis: list[dict] = []
+
+    # Per-ticker buy/sell accounting (all rows, not FIFO-filtered)
+    ticker_buy_rows:   dict[str, int]   = defaultdict(int)
+    ticker_sell_rows:  dict[str, int]   = defaultdict(int)
+    ticker_buy_qty:    dict[str, float] = defaultdict(float)
+    ticker_sell_qty:   dict[str, float] = defaultdict(float)
+    ticker_buy_value:  dict[str, float] = defaultdict(float)
+    ticker_sell_value: dict[str, float] = defaultdict(float)
 
     for tx in txs_sorted:
         action = _s(tx.get("action"))
@@ -206,9 +215,15 @@ def validate_pnl(account_id: str = None) -> dict:
         if action == "BUY" and ticker and qty > 0:
             per_share = price if price > 0 else (abs(total) / qty if qty else 0.0)
             buy_queues[ticker].append([qty, per_share])
+            ticker_buy_rows[ticker]  += 1
+            ticker_buy_qty[ticker]   += qty
+            ticker_buy_value[ticker] += qty * per_share
 
         elif action == "SELL" and ticker and qty > 0:
             proceeds = abs(total) if total != 0 else qty * price
+            ticker_sell_rows[ticker]  += 1
+            ticker_sell_qty[ticker]   += qty
+            ticker_sell_value[ticker] += proceeds
 
             queue = buy_queues[ticker]
             remaining = qty
@@ -225,12 +240,12 @@ def validate_pnl(account_id: str = None) -> dict:
             # If we consumed nothing from the buy queue, cost basis = 0
             if cost == 0.0 and proceeds > 0:
                 zero_basis.append({
-                    "date":      date_str,
-                    "ticker":    ticker,
-                    "quantity":  qty,
-                    "proceeds":  round(proceeds, 2),
+                    "date":          date_str,
+                    "ticker":        ticker,
+                    "quantity":      qty,
+                    "proceeds":      round(proceeds, 2),
                     "inflated_gain": round(proceeds, 2),
-                    "account_id": tx.get("account_id", ""),
+                    "account_id":    tx.get("account_id", ""),
                 })
 
     # Summarise by ticker
@@ -253,6 +268,13 @@ def validate_pnl(account_id: str = None) -> dict:
                 "inflated_gain":   round(d["inflated_gain"], 2),
                 "first_sell_date": min(d["dates"]),
                 "last_sell_date":  max(d["dates"]),
+                # Buy vs sell row counts — key for diagnosing WHY cost is $0
+                "buy_rows":        ticker_buy_rows.get(t, 0),
+                "sell_rows":       ticker_sell_rows.get(t, 0),
+                "buy_qty":         round(ticker_buy_qty.get(t, 0), 4),
+                "sell_qty":        round(ticker_sell_qty.get(t, 0), 4),
+                "buy_value":       round(ticker_buy_value.get(t, 0), 2),
+                "sell_value":      round(ticker_sell_value.get(t, 0), 2),
             }
             for t, d in by_ticker.items()
         ],
