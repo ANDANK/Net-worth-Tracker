@@ -1,5 +1,6 @@
 """Realized P&L and dividend income calculated from transaction history (FIFO cost basis)."""
 import math
+import re
 from collections import defaultdict
 from datetime import datetime
 from services.transactions import list_transactions
@@ -28,6 +29,31 @@ def _f(v) -> float:
         return float(v)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _underlying(ticker: str) -> str:
+    """
+    Normalize an option contract description to just the underlying ticker.
+
+    Some broker CSVs (notably Robinhood) put the full contract description in
+    the Instrument column for BTC/BTO rows while STC/STO rows have only the
+    underlying symbol.  This causes the debit (cost) side to be bucketed under
+    a *different* key than the credit (income) side, making P&L look inflated.
+
+    Examples
+    --------
+    "AVGO 01/20/2025 200.00 C"   →  "AVGO"
+    "NVDA 03/21/2025 1000.00 P"  →  "NVDA"
+    "AAPL"                       →  "AAPL"   (unchanged, no space)
+    "BRK.B"                      →  "BRK.B"  (unchanged)
+    """
+    if not ticker:
+        return ticker
+    if " " not in ticker:
+        return ticker          # already a plain ticker — nothing to strip
+    first = ticker.strip().split()[0].upper()
+    # Accept 1–6 uppercase letters, optionally followed by a single .X suffix (e.g. BRK.B)
+    return first if re.match(r"^[A-Z]{1,6}(\.[A-Z])?$", first) else ticker
 
 
 def _s(val) -> str:
@@ -90,7 +116,7 @@ def compute_pnl(account_id: str = None, period: str = None, ticker: str = None) 
         action = _s(tx.get("action"))
         if action not in _PNL_ACTIONS:
             continue
-        t        = _s(tx.get("ticker"))
+        t        = _underlying(_s(tx.get("ticker")))   # strip option-contract suffix if any
         date_str = tx.get("date", "")
         total    = abs(_f(tx.get("total_amount")))
         in_period = not period_start or date_str >= period_start
@@ -202,7 +228,7 @@ def validate_pnl(account_id: str = None) -> dict:
         action = _s(tx.get("action"))
         if action not in _PNL_ACTIONS:
             continue
-        ticker = _s(tx.get("ticker"))
+        ticker = _underlying(_s(tx.get("ticker")))
         qty    = _f(tx.get("quantity"))
         price  = _f(tx.get("price"))
         total  = _f(tx.get("total_amount"))
@@ -304,7 +330,7 @@ def trace_ticker_fifo(ticker: str, account_id: str = None) -> dict:
 
     relevant = sorted(
         [tx for tx in txs
-         if _s(tx.get("ticker")).upper() == ticker_upper
+         if _underlying(_s(tx.get("ticker"))).upper() == ticker_upper
          and _s(tx.get("action")) in _PNL_ACTIONS],
         key=lambda x: x.get("date", ""),
     )
@@ -324,6 +350,7 @@ def trace_ticker_fifo(ticker: str, account_id: str = None) -> dict:
         price    = _f(tx.get("price"))
         total    = _f(tx.get("total_amount"))
         fees     = _f(tx.get("fees"))
+        # Note: ticker already normalized via the relevant-filter above
 
         qty_eff = qty if qty > 0 else (
             abs(total) / price if (price > 0 and total != 0) else 0.0

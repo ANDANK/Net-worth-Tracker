@@ -15,6 +15,7 @@ require_auth()
 
 from services.pnl import compute_pnl, validate_pnl, trace_ticker_fifo
 from services.accounts import list_accounts
+from services.transactions import list_transactions
 
 with st.sidebar:
     if st.button("🚪 Sign out", use_container_width=True):
@@ -382,6 +383,9 @@ with trace_col2:
     st.markdown("<br>", unsafe_allow_html=True)
     run_trace = st.button("🔬 Run FIFO Trace", type="secondary")
 
+if run_trace and not trace_ticker:
+    st.warning("Enter a ticker first.")
+
 if run_trace and trace_ticker:
     with st.spinner(f"Tracing FIFO for {trace_ticker}…"):
         try:
@@ -428,3 +432,85 @@ if run_trace and trace_ticker:
         if not events_df.empty:
             with st.expander("📋 Full transaction trace", expanded=True):
                 st.dataframe(events_df, use_container_width=True, height=400, hide_index=True)
+
+# ── Raw Transactions Inspector ─────────────────────────────────────────────────
+st.divider()
+st.subheader("🗂️ Raw Transactions Inspector")
+st.caption(
+    "Shows **every row stored in Sheets** for a ticker — including rows marked as "
+    "`OTHER` or `DUPLICATE` that P&L ignores.  "
+    "Use this to verify that BUY/OPTION_BUY amounts are actually stored correctly "
+    "and the ticker field isn't garbled (e.g. a full option contract description "
+    "like `AVGO 01/20/2025 200.00 C` instead of just `AVGO`)."
+)
+
+raw_col1, raw_col2 = st.columns([2, 1])
+with raw_col1:
+    raw_ticker = st.text_input("Ticker to inspect", placeholder="e.g. AVGO",
+                               key="raw_inspect_ticker").strip().upper()
+with raw_col2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    run_raw = st.button("🗂️ Load Raw Rows", type="secondary")
+
+if run_raw and raw_ticker:
+    with st.spinner(f"Loading all rows for {raw_ticker}…"):
+        try:
+            # list_transactions does exact-match filter on ticker column
+            # also pull rows where ticker starts with this symbol (option contracts)
+            all_rows = list_transactions(
+                account_id=account_id,   # respect the account filter at top
+                limit=50000,
+            )
+            # Manual filter: normalize ticker and match
+            import re as _re
+            def _norm(t):
+                t = str(t).strip()
+                if " " not in t:
+                    return t.upper()
+                first = t.strip().split()[0].upper()
+                return first if _re.match(r"^[A-Z]{1,6}(\.[A-Z])?$", first) else t.upper()
+
+            matched = [r for r in all_rows if _norm(r.get("ticker", "")) == raw_ticker]
+        except Exception as e:
+            st.error(f"Error: {e}")
+            matched = []
+
+    if not matched:
+        st.info(f"No rows found for **{raw_ticker}** (including partial matches).")
+    else:
+        df_raw = pd.DataFrame(matched)
+        # Show the most useful columns
+        _cols = [c for c in ["date", "action", "ticker", "quantity", "price",
+                              "total_amount", "fees", "broker", "imported_file"]
+                 if c in df_raw.columns]
+        df_raw_show = df_raw[_cols].sort_values("date")
+
+        _action_counts = df_raw_show["action"].value_counts().to_dict() if "action" in df_raw_show.columns else {}
+        st.markdown(
+            f"**{len(matched)} rows** found for `{raw_ticker}`.  "
+            + "  ".join(f"`{k}`: {v}" for k, v in sorted(_action_counts.items()))
+        )
+
+        # Highlight OTHER rows that are invisible to P&L
+        _other_count = _action_counts.get("OTHER", 0)
+        if _other_count:
+            st.warning(
+                f"⚠️ **{_other_count} row(s) stored as `OTHER`** — these are "
+                f"excluded from all P&L calculations.  "
+                f"They were imported with an unrecognised broker action code.  "
+                f"To fix: delete these rows from the Transactions sheet and "
+                f"re-import the original CSV (the parser now maps those codes correctly)."
+            )
+
+        st.dataframe(
+            df_raw_show,
+            use_container_width=True,
+            height=min(600, 50 + len(df_raw_show) * 35),
+            hide_index=True,
+            column_config={
+                "total_amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
+                "quantity":     st.column_config.NumberColumn("Qty",    format="%.4f"),
+                "price":        st.column_config.NumberColumn("Price",  format="$%.4f"),
+                "fees":         st.column_config.NumberColumn("Fees",   format="$%.2f"),
+            },
+        )

@@ -1,7 +1,22 @@
 """Robinhood CSV parser."""
+import re
 import pandas as pd
 from models.schemas import TransactionType
 from parsers.base import BaseParser, ParsedTransaction, _is_blank
+
+_OPT_UNDERLYING_RE = re.compile(r"^([A-Z]{1,6}(?:\.[A-Z])?)\s+\d", re.IGNORECASE)
+
+def _opt_underlying(ticker: str | None) -> str | None:
+    """
+    Normalize Robinhood option contract descriptions to just the underlying ticker.
+    Robinhood sometimes puts the full contract in the Instrument column for BTC/BTO:
+      "AVGO 01/20/2025 200.00 C"  →  "AVGO"
+    Simple tickers are returned unchanged.
+    """
+    if not ticker or " " not in ticker:
+        return ticker
+    m = _OPT_UNDERLYING_RE.match(ticker.strip())
+    return m.group(1).upper() if m else ticker
 
 ACTION_MAP = {
     # ── Stock trades ──
@@ -77,7 +92,9 @@ class RobinhoodParser(BaseParser):
                 action = ACTION_MAP.get(raw_action, TransactionType.OTHER)
 
                 date   = self.normalize_date(row.get("Date", row.get("Process Date", "")))
-                ticker = self.clean_ticker(row.get("Instrument", row.get("Symbol", "")))
+                ticker = _opt_underlying(
+                    self.clean_ticker(row.get("Instrument", row.get("Symbol", "")))
+                )
                 qty    = self.clean_qty(row.get("Quantity", row.get("Shares", "")))
                 price  = self.clean_amount(row.get("Price", ""))
                 fees   = self.clean_amount(row.get("Fees & Comm", row.get("Fees", 0)))
