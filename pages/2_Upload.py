@@ -91,29 +91,35 @@ if not diag.get("sheets_connected"):
 total        = diag.get("total_rows_in_file", 0)
 parsed       = diag.get("parsed_count", 0)
 will_imp     = diag.get("would_import", 0)
-will_dup     = diag.get("would_skip_duplicates", 0)
+dup_upload   = diag.get("duplicate_upload", 0)
 other_count  = diag.get("other_count", 0)
 blank_skip   = diag.get("skipped_blank", 0)
 parse_errors = diag.get("parse_errors", [])
 other_acts   = diag.get("other_actions", {})
 rec_acts     = diag.get("recognised_actions", {})
 
+total_to_write = will_imp + dup_upload + other_count
+
 # ── Summary metrics ───────────────────────────────────────────────────────────
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Rows in file",            total)
-m2.metric("✅ Will import (new)",     will_imp)
-m3.metric("🔵 OTHER (non-financial)", other_count,
-          help="Unknown action codes — uploaded as OTHER so you can review in Google Sheets")
-m4.metric("⏭️ Duplicates (skip)",     will_dup,
-          help="Already in Google Sheets — safe to ignore")
-m5.metric("🚫 Blank / header rows",   blank_skip,
-          help="Empty rows and repeated header rows — always skipped")
+m2.metric("✅ New (financial)",       will_imp,
+          help="New financial transactions — imported normally")
+m3.metric("🟡 DUPLICATE",            dup_upload,
+          help="Already in Google Sheets — uploaded again with action=DUPLICATE for your audit trail")
+m4.metric("🔵 OTHER",                other_count,
+          help="Unrecognised action codes — uploaded as OTHER for manual review, excluded from P&L")
+m5.metric("🚫 Blank / parse errors", blank_skip + len(parse_errors),
+          help="Blank/header rows and rows that threw a parse exception — not uploaded")
 
-# ── Issues panel ─────────────────────────────────────────────────────────────
-has_issues = bool(other_acts or parse_errors)
-if has_issues:
-    st.markdown("---")
-    st.markdown("### ⚠️ Issues found")
+# ── Issues / info panels ──────────────────────────────────────────────────────
+if dup_upload:
+    with st.expander(f"🟡 {dup_upload} DUPLICATE rows — uploaded for audit trail", expanded=False):
+        st.caption(
+            "These rows already exist in Google Sheets (same transaction ID). "
+            "They will be uploaded again with **action = DUPLICATE** so you can spot "
+            "re-imports in the Transactions sheet. They are **excluded from P&L and net worth**."
+        )
 
 # OTHER action codes
 if other_acts:
@@ -183,47 +189,43 @@ with st.expander("🔍 Preview first 50 parsed rows"):
 st.subheader("Step 4 — Import to Google Sheets")
 st.markdown("---")
 
-if will_imp == 0 and other_count == 0 and will_dup > 0:
-    st.info(f"All {will_dup} rows already exist in the sheet — nothing new to import.")
-elif will_imp == 0 and other_count == 0:
-    st.warning("Nothing to import. Check the analysis above for issues.")
+if total_to_write == 0:
+    st.info("Nothing to upload — all rows are blank or caused parse errors.")
 else:
-    total_to_write = will_imp + other_count
     label_parts = []
-    if will_imp:    label_parts.append(f"{will_imp} financial")
+    if will_imp:    label_parts.append(f"{will_imp} new financial")
+    if dup_upload:  label_parts.append(f"{dup_upload} DUPLICATE")
     if other_count: label_parts.append(f"{other_count} OTHER")
-    if will_dup:    label_parts.append(f"{will_dup} duplicates skipped")
 
     st.caption(
-        f"Ready to write **{total_to_write} rows** ({' · '.join(label_parts)}). "
-        "OTHER rows will appear in the Transactions sheet with action = OTHER for your review."
+        f"Will write **{total_to_write} rows** to Google Sheets: {' · '.join(label_parts)}. "
+        "DUPLICATE and OTHER rows are excluded from P&L and net worth."
     )
 
-    if st.button(f"✅ Import {total_to_write} rows", type="primary"):
-        with st.spinner(f"Writing {total_to_write} rows to Google Sheets…"):
+    if st.button(f"✅ Upload {total_to_write} rows to Google Sheets", type="primary"):
+        with st.spinner(f"Writing {total_to_write} rows (chunked — may take a moment)…"):
             try:
                 result = import_file(file_bytes, uploaded.name, broker_id, account_id)
             except Exception as e:
-                st.error(f"Import failed: {e}")
+                st.error(f"Upload failed: {e}")
                 st.stop()
 
         if result.errors:
-            st.error(f"Import finished with errors:\n{chr(10).join(result.error_details)}")
+            st.error(f"Upload finished with errors:\n{chr(10).join(result.error_details)}")
         else:
-            st.success(
-                f"✅ **Done!** "
-                f"Imported **{result.imported}** rows · "
-                f"Skipped **{result.skipped_duplicates}** duplicates"
-            )
+            parts = [f"**{result.imported}** new financial rows"]
+            if result.duplicate_uploaded:
+                parts.append(f"**{result.duplicate_uploaded}** DUPLICATE rows")
+            st.success(f"✅ **Done!** Uploaded {' · '.join(parts)}")
+
             if parse_errors:
                 st.warning(
-                    f"⚠️ **{len(parse_errors)} rows were not imported** due to parse errors. "
-                    "See the Issues panel above."
+                    f"⚠️ {len(parse_errors)} rows were NOT uploaded due to parse errors. "
+                    "See Issues panel above."
                 )
             if other_count:
                 st.info(
-                    f"🔵 **{other_count} OTHER rows** uploaded — visible in the "
-                    "Transactions Google Sheet with action = OTHER. "
-                    "They are excluded from all P&L and net worth calculations."
+                    f"🔵 {other_count} OTHER rows uploaded — visible in Google Sheets "
+                    "with action = OTHER for your review."
                 )
             st.cache_data.clear()

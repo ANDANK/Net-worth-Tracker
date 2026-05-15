@@ -44,7 +44,8 @@ class TransactionType(str, Enum):
     WITHDRAWAL = "WITHDRAWAL"
     TRANSFER = "TRANSFER"
     SPLIT = "SPLIT"
-    OTHER = "OTHER"  # unrecognised code — uploaded for manual review, excluded from P&L
+    OTHER     = "OTHER"      # unrecognised code — uploaded for manual review, excluded from P&L
+    DUPLICATE = "DUPLICATE"  # re-imported row — uploaded for audit trail, excluded from P&L
 
 
 class Account(BaseModel):
@@ -137,8 +138,9 @@ class ProjectionResult(BaseModel):
 
 class ImportResult(BaseModel):
     imported: int
-    skipped_duplicates: int
-    errors: int
+    skipped_duplicates: int = 0   # kept for compat; always 0 now (dups are uploaded)
+    duplicate_uploaded: int = 0   # rows re-uploaded with action=DUPLICATE
+    errors: int = 0
     error_details: List[str] = []
 
 

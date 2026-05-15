@@ -7,39 +7,48 @@ ACTION_MAP = {
     # ── Stock trades ──
     "Buy":          TransactionType.BUY,
     "Sell":         TransactionType.SELL,
-    "BCSY":         TransactionType.BUY,
-    "SCSY":         TransactionType.SELL,
+    "BCSY":         TransactionType.BUY,   # Buy Cash Security
+    "SCSY":         TransactionType.SELL,  # Sell Cash Security
     "MKT BUY":      TransactionType.BUY,
     "MKT SELL":     TransactionType.SELL,
     "LIMIT BUY":    TransactionType.BUY,
     "LIMIT SELL":   TransactionType.SELL,
     # ── Options ──
-    "BTO":  TransactionType.OPTION_BUY,
-    "STC":  TransactionType.OPTION_SELL,
-    "BTC":  TransactionType.OPTION_BUY,
-    "STO":  TransactionType.OPTION_SELL,
-    "OCA":  TransactionType.OPTION_SELL,
-    # ── Income ──
+    "BTO":  TransactionType.OPTION_BUY,    # Buy to Open
+    "STC":  TransactionType.OPTION_SELL,   # Sell to Close
+    "BTC":  TransactionType.OPTION_BUY,    # Buy to Close
+    "STO":  TransactionType.OPTION_SELL,   # Sell to Open
+    "OCA":  TransactionType.OPTION_SELL,   # Option Cash Assignment
+    # ── Income / interest ──
     "Dividend":       TransactionType.DIVIDEND,
     "Cash Dividend":  TransactionType.DIVIDEND,
-    "CDIV":           TransactionType.DIVIDEND,
-    "JDIV":           TransactionType.DIVIDEND,
+    "CDIV":           TransactionType.DIVIDEND,  # Cash Dividend
+    "JDIV":           TransactionType.DIVIDEND,  # Journal Dividend
     "Interest":       TransactionType.INTEREST,
     "Misc Credit":    TransactionType.INTEREST,
-    # ── Cash movements ──
-    "Deposit":    TransactionType.DEPOSIT,
-    "Withdrawal": TransactionType.WITHDRAWAL,
-    "FEE":        TransactionType.WITHDRAWAL,
+    "INT":            TransactionType.INTEREST,  # Interest (short code)
+    "MINT":           TransactionType.INTEREST,  # Margin Interest
+    # ── Cash deposits ──
+    "Deposit":        TransactionType.DEPOSIT,
+    "ACH":            TransactionType.DEPOSIT,   # ACH bank transfer (cash in)
+    "ACH_CANCEL":     TransactionType.WITHDRAWAL, # ACH reversal/cancellation
+    "RTP":            TransactionType.DEPOSIT,   # Real-Time Payment (instant deposit)
+    "WIRE":           TransactionType.DEPOSIT,   # Wire transfer in
+    # ── Withdrawals / fees ──
+    "Withdrawal":     TransactionType.WITHDRAWAL,
+    "FEE":            TransactionType.WITHDRAWAL, # Generic fee
+    "GOLD":           TransactionType.WITHDRAWAL, # Robinhood Gold subscription fee
+    "MARGIN":         TransactionType.WITHDRAWAL, # Margin interest charge
     # ── Transfers / corporate actions ──
-    "Transfer":     TransactionType.TRANSFER,
-    "JTRANSFER":    TransactionType.TRANSFER,
-    "ACATC":        TransactionType.TRANSFER,
-    "ACATS":        TransactionType.TRANSFER,
-    "SPC":          TransactionType.TRANSFER,
-    "CONV":         TransactionType.TRANSFER,
-    "OEXP":         TransactionType.TRANSFER,
-    "SPL":          TransactionType.SPLIT,
-    "RECSPL":       TransactionType.SPLIT,
+    "Transfer":    TransactionType.TRANSFER,
+    "JTRANSFER":   TransactionType.TRANSFER,  # Journal Transfer
+    "ACATC":       TransactionType.TRANSFER,  # ACATS Cash
+    "ACATS":       TransactionType.TRANSFER,  # ACATS Securities
+    "SPC":         TransactionType.TRANSFER,  # Stock Position Correction
+    "CONV":        TransactionType.TRANSFER,  # Conversion
+    "OEXP":        TransactionType.TRANSFER,  # Option Expiration (worthless)
+    "SPL":         TransactionType.SPLIT,     # Stock Split
+    "RECSPL":      TransactionType.SPLIT,     # Reverse Split
 }
 
 # Column names that look like action codes — skip them (repeated header rows)

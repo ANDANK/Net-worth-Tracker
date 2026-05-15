@@ -4,8 +4,8 @@ from collections import defaultdict
 from datetime import datetime
 from services.transactions import list_transactions
 
-# Only these action types affect P&L — everything else (OTHER, DEPOSIT,
-# WITHDRAWAL, TRANSFER, SPLIT) is silently ignored in all calculations.
+# Only these action types affect P&L.
+# DEPOSIT, WITHDRAWAL, TRANSFER, SPLIT, OTHER, DUPLICATE are all excluded.
 _PNL_ACTIONS = {"BUY", "SELL", "DIVIDEND", "INTEREST", "OPTION_BUY", "OPTION_SELL"}
 
 

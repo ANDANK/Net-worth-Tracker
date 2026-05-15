@@ -71,32 +71,40 @@ def import_file(
     try:
         existing_ids = sheets_client.get_existing_transaction_ids()
     except Exception as e:
-        return ImportResult(imported=0, skipped_duplicates=0, errors=1,
+        return ImportResult(imported=0, errors=1,
                             error_details=[f"Could not reach Google Sheets: {str(e)}"])
 
+    # ACTION column is index 3 in to_row()
+    _ACTION_IDX = 3
+
     new_rows: list[list] = []
-    skipped = 0
+    dup_rows: list[list] = []
 
     for tx in parsed:
+        row = tx.to_row()
         if tx.transaction_id in existing_ids:
-            skipped += 1
+            # Re-upload with action overwritten to DUPLICATE (first occurrence untouched)
+            dup_row = list(row)
+            dup_row[_ACTION_IDX] = "DUPLICATE"
+            dup_rows.append(dup_row)
         else:
-            new_rows.append(tx.to_row())
+            new_rows.append(row)
             existing_ids.add(tx.transaction_id)   # prevent intra-batch dupes
 
-    if not new_rows:
-        return ImportResult(imported=0, skipped_duplicates=skipped, errors=0)
+    all_rows = new_rows + dup_rows
+    if not all_rows:
+        return ImportResult(imported=0, duplicate_uploaded=0, errors=0)
 
-    # --- Batch write: all rows in as few API calls as possible ---
+    # --- Batch write: new rows first, then duplicates ---
     try:
-        sheets_client.append_rows_batch("transactions", new_rows)
+        sheets_client.append_rows_batch("transactions", all_rows)
     except Exception as e:
-        return ImportResult(imported=0, skipped_duplicates=skipped, errors=len(new_rows),
+        return ImportResult(imported=0, errors=len(all_rows),
                             error_details=[f"Batch write failed: {str(e)}"])
 
     return ImportResult(
         imported=len(new_rows),
-        skipped_duplicates=skipped,
+        duplicate_uploaded=len(dup_rows),
         errors=0,
     )
 
@@ -149,16 +157,16 @@ def diagnose_file(file_bytes: bytes, filename: str, broker: str, account_id: str
         is_dup = tx.transaction_id in existing_ids or tx.transaction_id in seen
         seen.add(tx.transaction_id)
         action_str = str(tx.action).replace("TransactionType.", "")
-        if action_str == "OTHER":
-            other_rows.append(tx)
-        elif is_dup:
-            dup_rows.append(tx)
+        if is_dup:
+            dup_rows.append(tx)           # will be uploaded as DUPLICATE
+        elif action_str == "OTHER":
+            other_rows.append(tx)         # will be uploaded as OTHER
         else:
-            new_rows.append(tx)
+            new_rows.append(tx)           # financial row, uploaded normally
         if not is_dup:
             existing_ids.add(tx.transaction_id)
 
-    # Per-action breakdown (financial + OTHER)
+    # Per-action breakdown (shows what will actually be uploaded)
     by_action: dict[str, int] = {}
     for tx in parsed:
         key = str(tx.action).replace("TransactionType.", "")
@@ -168,13 +176,13 @@ def diagnose_file(file_bytes: bytes, filename: str, broker: str, account_id: str
         "total_rows_in_file":    len(df),
         "parsed_count":          len(parsed),
         "would_import":          len(new_rows),
-        "would_skip_duplicates": len(dup_rows),
-        "other_count":           len(other_rows),      # NEW: uploaded as OTHER
+        "duplicate_upload":      len(dup_rows),    # uploaded as DUPLICATE
+        "other_count":           len(other_rows),  # uploaded as OTHER
         "skipped_blank":         diag.get("skipped_blank", 0),
         "recognised_actions":    diag.get("recognised", {}),
-        "other_actions":         diag.get("other", {}),# action codes → OTHER
+        "other_actions":         diag.get("other", {}),
         "parsed_by_action":      by_action,
-        "parse_errors":          parse_errors,          # per-row exceptions
+        "parse_errors":          parse_errors,
         "sheets_connected":      sheets_ok,
     }
 

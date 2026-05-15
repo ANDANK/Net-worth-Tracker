@@ -4,23 +4,39 @@ from models.schemas import TransactionType
 from parsers.base import BaseParser, ParsedTransaction, _is_blank
 
 ACTION_MAP = {
-    "Buy": TransactionType.BUY,
+    # ── Trades ──
+    "Buy":  TransactionType.BUY,
     "Sell": TransactionType.SELL,
-    "Div Reinvest": TransactionType.DIVIDEND,
-    "Dividend": TransactionType.DIVIDEND,
-    "Qualified Dividend": TransactionType.DIVIDEND,
-    "Interest": TransactionType.INTEREST,
-    "Bank Interest": TransactionType.INTEREST,
-    "Wire Funds": TransactionType.DEPOSIT,
-    "Wire Funds Received": TransactionType.DEPOSIT,
-    "Electronic Funds Transfer": TransactionType.DEPOSIT,
-    "Funds Received": TransactionType.DEPOSIT,
-    "Journaled Shares": TransactionType.TRANSFER,
-    "Stock Split": TransactionType.SPLIT,
-    "Buy to Open": TransactionType.OPTION_BUY,
+    # ── Options ──
+    "Buy to Open":   TransactionType.OPTION_BUY,
+    "Buy to Close":  TransactionType.OPTION_BUY,
+    "Sell to Open":  TransactionType.OPTION_SELL,
     "Sell to Close": TransactionType.OPTION_SELL,
-    "Sell to Open": TransactionType.OPTION_SELL,
-    "Buy to Close": TransactionType.OPTION_BUY,
+    # ── Income ──
+    "Dividend":           TransactionType.DIVIDEND,
+    "Qualified Dividend": TransactionType.DIVIDEND,
+    "Div Reinvest":       TransactionType.DIVIDEND,
+    "Capital Gain":       TransactionType.DIVIDEND,
+    "Interest":           TransactionType.INTEREST,
+    "Bank Interest":      TransactionType.INTEREST,
+    "Margin Interest":    TransactionType.INTEREST,
+    # ── Cash deposits ──
+    "Wire Funds":                   TransactionType.DEPOSIT,
+    "Wire Funds Received":          TransactionType.DEPOSIT,
+    "Electronic Funds Transfer":    TransactionType.DEPOSIT,   # ACH equivalent
+    "Funds Received":               TransactionType.DEPOSIT,
+    "MoneyLink Transfer":           TransactionType.DEPOSIT,
+    "Deposit":                      TransactionType.DEPOSIT,
+    # ── Withdrawals / fees ──
+    "Withdrawal":               TransactionType.WITHDRAWAL,
+    "Wire Funds Sent":          TransactionType.WITHDRAWAL,
+    "Electronic Funds Transfer - Sent": TransactionType.WITHDRAWAL,
+    "Service Charges":          TransactionType.WITHDRAWAL,
+    "Advisory Fees":            TransactionType.WITHDRAWAL,
+    # ── Transfers / corporate ──
+    "Journaled Shares":  TransactionType.TRANSFER,
+    "Security Transfer": TransactionType.TRANSFER,
+    "Stock Split":       TransactionType.SPLIT,
 }
 
 _HEADER_VALUES = frozenset({"action", "date"})

@@ -4,12 +4,24 @@ from models.schemas import TransactionType
 from parsers.base import BaseParser, ParsedTransaction, _is_blank
 
 ACTION_MAP = {
-    "BUY":        TransactionType.BUY,
-    "SELL":       TransactionType.SELL,
-    "Dividend":   TransactionType.DIVIDEND,
-    "Interest":   TransactionType.INTEREST,
-    "Deposit":    TransactionType.DEPOSIT,
-    "Withdrawal": TransactionType.WITHDRAWAL,
+    # ── Trades ──
+    "BUY":  TransactionType.BUY,
+    "SELL": TransactionType.SELL,
+    # ── Income ──
+    "Dividend":        TransactionType.DIVIDEND,
+    "Interest":        TransactionType.INTEREST,
+    "Margin Interest": TransactionType.INTEREST,
+    # ── Cash movements ──
+    "Deposit":         TransactionType.DEPOSIT,
+    "ACH Deposit":     TransactionType.DEPOSIT,
+    "Wire Deposit":    TransactionType.DEPOSIT,
+    "Withdrawal":      TransactionType.WITHDRAWAL,
+    "ACH Withdrawal":  TransactionType.WITHDRAWAL,
+    "Wire Withdrawal": TransactionType.WITHDRAWAL,
+    "Fee":             TransactionType.WITHDRAWAL,
+    # ── Transfers ──
+    "Transfer":        TransactionType.TRANSFER,
+    "Stock Split":     TransactionType.SPLIT,
 }
 
 _HEADER_VALUES = frozenset({"side", "type", "action"})

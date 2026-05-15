@@ -4,17 +4,28 @@ from models.schemas import TransactionType
 from parsers.base import BaseParser, ParsedTransaction, _is_blank
 
 ACTION_MAP = {
-    "Buy":                  TransactionType.BUY,
-    "Sell":                 TransactionType.SELL,
-    "Dividend":             TransactionType.DIVIDEND,
-    "Capital gain (LT)":    TransactionType.DIVIDEND,
-    "Capital gain (ST)":    TransactionType.DIVIDEND,
-    "Reinvestment":         TransactionType.DIVIDEND,
-    "Interest":             TransactionType.INTEREST,
-    "Contribution":         TransactionType.DEPOSIT,
-    "Distribution":         TransactionType.WITHDRAWAL,
-    "Transfer (incoming)":  TransactionType.TRANSFER,
-    "Transfer (outgoing)":  TransactionType.TRANSFER,
+    # ── Trades ──
+    "Buy":  TransactionType.BUY,
+    "Sell": TransactionType.SELL,
+    # ── Income ──
+    "Dividend":           TransactionType.DIVIDEND,
+    "Capital gain (LT)":  TransactionType.DIVIDEND,
+    "Capital gain (ST)":  TransactionType.DIVIDEND,
+    "Reinvestment":       TransactionType.DIVIDEND,
+    "Interest":           TransactionType.INTEREST,
+    # ── Cash movements ──
+    "Contribution":        TransactionType.DEPOSIT,   # 401k/IRA contribution
+    "Rollover (incoming)": TransactionType.DEPOSIT,
+    "Purchase":            TransactionType.DEPOSIT,
+    "Distribution":        TransactionType.WITHDRAWAL,
+    "Withdrawal":          TransactionType.WITHDRAWAL,
+    "Rollover (outgoing)": TransactionType.WITHDRAWAL,
+    "Fee":                 TransactionType.WITHDRAWAL,
+    # ── Transfers / corporate ──
+    "Transfer (incoming)": TransactionType.TRANSFER,
+    "Transfer (outgoing)": TransactionType.TRANSFER,
+    "Exchange":            TransactionType.TRANSFER,
+    "Stock split":         TransactionType.SPLIT,
 }
 
 _HEADER_VALUES = frozenset({"transaction type", "type", "trade date"})

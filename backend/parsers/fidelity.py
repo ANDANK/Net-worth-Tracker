@@ -4,17 +4,34 @@ from models.schemas import TransactionType
 from parsers.base import BaseParser, ParsedTransaction, _is_blank
 
 ACTION_MAP = {
+    # ── Trades ──
     "YOU BOUGHT": TransactionType.BUY,
     "YOU SOLD":   TransactionType.SELL,
     "BOUGHT":     TransactionType.BUY,
     "SOLD":       TransactionType.SELL,
-    "DIVIDEND RECEIVED": TransactionType.DIVIDEND,
-    "REINVESTMENT":      TransactionType.DIVIDEND,
-    "INTEREST EARNED":   TransactionType.INTEREST,
-    "ELECTRONIC FUNDS TRANSFER RECEIVED": TransactionType.DEPOSIT,
-    "DIRECT DEPOSIT":    TransactionType.DEPOSIT,
-    "TRANSFERRED FROM":  TransactionType.TRANSFER,
-    "TRANSFERRED TO":    TransactionType.TRANSFER,
+    # ── Options ──
+    "OPENING TRANSACTION": TransactionType.OPTION_BUY,
+    "CLOSING TRANSACTION": TransactionType.OPTION_SELL,
+    # ── Income ──
+    "DIVIDEND RECEIVED":   TransactionType.DIVIDEND,
+    "REINVESTMENT":        TransactionType.DIVIDEND,
+    "CAPITAL GAINS":       TransactionType.DIVIDEND,
+    "INTEREST EARNED":     TransactionType.INTEREST,
+    "INTEREST INCOME":     TransactionType.INTEREST,
+    # ── Cash deposits ──
+    "ELECTRONIC FUNDS TRANSFER RECEIVED": TransactionType.DEPOSIT,  # ACH in
+    "DIRECT DEPOSIT":      TransactionType.DEPOSIT,
+    "CHECK RECEIVED":      TransactionType.DEPOSIT,
+    "WIRE RECEIVED":       TransactionType.DEPOSIT,
+    # ── Withdrawals / fees ──
+    "ELECTRONIC FUNDS TRANSFER":  TransactionType.WITHDRAWAL,  # ACH out
+    "WIRE":                       TransactionType.WITHDRAWAL,
+    "MANAGEMENT FEES":            TransactionType.WITHDRAWAL,
+    "FEE":                        TransactionType.WITHDRAWAL,
+    # ── Transfers / corporate ──
+    "TRANSFERRED FROM": TransactionType.TRANSFER,
+    "TRANSFERRED TO":   TransactionType.TRANSFER,
+    "STOCK SPLIT":      TransactionType.SPLIT,
 }
 
 _HEADER_VALUES = frozenset({"action", "transaction type", "run date"})

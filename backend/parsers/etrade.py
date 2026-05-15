@@ -4,15 +4,30 @@ from models.schemas import TransactionType
 from parsers.base import BaseParser, ParsedTransaction, _is_blank
 
 ACTION_MAP = {
-    "Bought":       TransactionType.BUY,
-    "Sold":         TransactionType.SELL,
-    "Dividend":     TransactionType.DIVIDEND,
-    "Interest":     TransactionType.INTEREST,
-    "Contribution": TransactionType.DEPOSIT,
-    "Withdrawal":   TransactionType.WITHDRAWAL,
-    "Transfer":     TransactionType.TRANSFER,
-    "Buy to Open":  TransactionType.OPTION_BUY,
-    "Sell to Close":TransactionType.OPTION_SELL,
+    # ── Trades ──
+    "Bought": TransactionType.BUY,
+    "Sold":   TransactionType.SELL,
+    # ── Options ──
+    "Buy to Open":   TransactionType.OPTION_BUY,
+    "Buy to Close":  TransactionType.OPTION_BUY,
+    "Sell to Open":  TransactionType.OPTION_SELL,
+    "Sell to Close": TransactionType.OPTION_SELL,
+    # ── Income ──
+    "Dividend":        TransactionType.DIVIDEND,
+    "Interest":        TransactionType.INTEREST,
+    "Margin Interest": TransactionType.INTEREST,
+    # ── Cash movements ──
+    "Contribution":    TransactionType.DEPOSIT,    # retirement contributions
+    "ACH":             TransactionType.DEPOSIT,    # ACH bank transfer
+    "Wire":            TransactionType.DEPOSIT,    # Wire in
+    "Deposit":         TransactionType.DEPOSIT,
+    "Withdrawal":      TransactionType.WITHDRAWAL,
+    "Wire Out":        TransactionType.WITHDRAWAL,
+    "Fee":             TransactionType.WITHDRAWAL,
+    "Commission":      TransactionType.WITHDRAWAL,
+    # ── Transfers / corporate ──
+    "Transfer":   TransactionType.TRANSFER,
+    "Stock Split": TransactionType.SPLIT,
 }
 
 _HEADER_VALUES = frozenset({"transaction type", "action", "date"})
