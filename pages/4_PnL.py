@@ -77,6 +77,58 @@ if run:
 data       = st.session_state["pnl_data"]
 validation = st.session_state["pnl_val"]
 
+# ── Open Positions filter ──────────────────────────────────────────────────────
+_all_tickers = sorted({b["ticker"] for b in data.get("by_ticker", []) if b.get("ticker")})
+
+# Auto-detect likely open positions: tickers where cost_basis > proceeds
+# (user spent more buying than they received selling → still holding)
+_auto_open = {
+    b["ticker"] for b in data.get("by_ticker", [])
+    if b.get("cost_basis", 0) > b.get("proceeds", 0)
+}
+
+# Keep whatever the user had previously selected (if it's still in the data).
+# On very first load, pre-populate with the auto-detected set.
+if "open_tickers" not in st.session_state:
+    st.session_state["open_tickers"] = sorted(_auto_open)
+
+_prev_open = [t for t in st.session_state["open_tickers"] if t in _all_tickers]
+
+with st.expander(
+    f"📂 Open Positions  —  {len(_prev_open)} ticker(s) marked as still held",
+    expanded=bool(_prev_open),
+):
+    st.caption(
+        "Tickers you **still own** are excluded from the Realized P&L totals and "
+        "shown in a separate **Open Positions** section below.  "
+        "Auto-detected based on BUY > SELL amounts — adjust as needed."
+    )
+    open_tickers_selected = st.multiselect(
+        "Tickers still held",
+        options=_all_tickers,
+        default=_prev_open,
+        placeholder="Type to search / select tickers…",
+        label_visibility="collapsed",
+    )
+    st.session_state["open_tickers"] = open_tickers_selected
+
+open_set = set(st.session_state["open_tickers"])
+
+# Split by_ticker into closed and open buckets
+_by_all    = data.get("by_ticker", [])
+by_closed  = [b for b in _by_all if b["ticker"] not in open_set]
+by_open    = [b for b in _by_all if b["ticker"] in open_set]
+
+# Closed-position KPIs (recomputed from filtered list)
+_c_real    = sum(b["realized_gain"]   for b in by_closed)
+_c_div     = sum(b["dividend_income"] for b in by_closed)
+_c_total   = _c_real + _c_div
+_c_inv     = sum(b["cost_basis"]      for b in by_closed)
+_c_winners = [b for b in by_closed if b["realized_gain"] > 0]
+_c_losers  = [b for b in by_closed if b["realized_gain"] < 0]
+_c_scnt    = len(_c_winners) + len(_c_losers)
+_c_wrate   = round(len(_c_winners) / _c_scnt * 100, 1) if _c_scnt else 0.0
+
 # ── Validation banner ─────────────────────────────────────────────────────────
 if validation.get("has_issues"):
     count    = validation.get("zero_basis_sell_count", 0)
@@ -90,20 +142,26 @@ if validation.get("has_issues"):
         f"Re-import older transaction history to fix this."
     )
 
-# ── KPIs ──────────────────────────────────────────────────────────────────────
-k1, k2, k3, k4, k5 = st.columns(5)
-total_r = data.get("total_realized", 0)
-total_d = data.get("total_dividends", 0)
-total   = data.get("total_return", 0)
-invested = data.get("total_invested", 0)
-win_rate = data.get("win_rate", 0)
+# ── KPIs (closed positions only when open_set is non-empty) ───────────────────
+if open_set:
+    lbl_sfx = " *(closed)*"
+    st.info(
+        f"📂 **{len(open_set)} open position(s) excluded:** "
+        + ", ".join(f"`{t}`" for t in sorted(open_set))
+        + " — see **Open Positions** section below for their cost & dividends."
+    )
+else:
+    lbl_sfx = ""
 
-k1.metric("Realized Gain",     fmt_currency(total_r), delta=fmt_pct(total_r / invested * 100) if invested else None)
-k2.metric("Dividend Income",   fmt_currency(total_d))
-k3.metric("Total Return",      fmt_currency(total),   delta=fmt_pct(total / invested * 100) if invested else None)
-k4.metric("Capital Deployed",  fmt_currency(invested))
-k5.metric("Win Rate",          f"{win_rate:.1f}%",
-          delta=f"{data.get('win_count',0)}W / {data.get('loss_count',0)}L")
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric(f"Realized Gain{lbl_sfx}",    fmt_currency(_c_real),
+          delta=fmt_pct(_c_real / _c_inv * 100) if _c_inv else None)
+k2.metric(f"Dividend Income{lbl_sfx}",  fmt_currency(_c_div))
+k3.metric(f"Total Return{lbl_sfx}",     fmt_currency(_c_total),
+          delta=fmt_pct(_c_total / _c_inv * 100) if _c_inv else None)
+k4.metric("Capital Deployed",           fmt_currency(_c_inv))
+k5.metric(f"Win Rate{lbl_sfx}",         f"{_c_wrate:.1f}%",
+          delta=f"{len(_c_winners)}W / {len(_c_losers)}L")
 
 st.divider()
 
@@ -144,15 +202,14 @@ if timeline:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# ── Per-ticker breakdown ───────────────────────────────────────────────────────
-by_ticker = data.get("by_ticker", [])
-if not by_ticker:
+# ── Per-ticker breakdown (closed positions) ────────────────────────────────────
+if not by_closed:
     st.info("No realized P&L events for the selected filters.")
     st.stop()
 
-st.subheader("Breakdown by Ticker")
+st.subheader("Breakdown by Ticker" + (" — Closed Positions" if open_set else ""))
 
-df_tk = pd.DataFrame(by_ticker)
+df_tk = pd.DataFrame(by_closed)
 
 # Side-by-side: bar chart + table
 chart_col, table_col = st.columns([1.2, 1])
@@ -198,9 +255,9 @@ with table_col:
         },
     )
 
-# ── Win / Loss donut ──────────────────────────────────────────────────────────
-wins   = data.get("win_count", 0)
-losses = data.get("loss_count", 0)
+# ── Win / Loss donut (closed positions) ───────────────────────────────────────
+wins   = len(_c_winners)
+losses = len(_c_losers)
 if wins + losses > 0:
     st.subheader("Win / Loss Split")
     donut = go.Figure(go.Pie(
@@ -260,6 +317,55 @@ if validation.get("has_issues"):
                 },
                 hide_index=True,
             )
+
+# ── Open Positions tracker ────────────────────────────────────────────────────
+if by_open:
+    st.divider()
+    st.subheader("📂 Open Positions")
+    st.caption(
+        "Tickers you marked as still held. "
+        "**Net Cost Remaining** = Total Invested − any Partial Proceeds (partial sells). "
+        "Unrealized gain requires current market prices — not shown here."
+    )
+
+    # Summary KPIs
+    _o_inv   = sum(b["cost_basis"]      for b in by_open)
+    _o_proc  = sum(b["proceeds"]        for b in by_open)
+    _o_net   = _o_inv - _o_proc
+    _o_div   = sum(b["dividend_income"] for b in by_open)
+
+    oc1, oc2, oc3, oc4 = st.columns(4)
+    oc1.metric("Open Tickers",          len(by_open))
+    oc2.metric("Total Invested",        fmt_currency(_o_inv))
+    oc3.metric("Net Cost Remaining",    fmt_currency(_o_net),
+               help="How much capital is still deployed in these positions.")
+    oc4.metric("Dividends Received",    fmt_currency(_o_div))
+
+    # Detail table
+    df_open = pd.DataFrame(by_open).copy()
+    df_open["net_cost"] = df_open["cost_basis"] - df_open["proceeds"]
+    _open_cols = {
+        "ticker":          "Ticker",
+        "cost_basis":      "Total Invested",
+        "proceeds":        "Partial Proceeds",
+        "net_cost":        "Net Cost Remaining",
+        "dividend_income": "Dividends",
+        "realized_gain":   "Partial Realized",   # gain on any shares already sold
+    }
+    df_open_show = df_open[[c for c in _open_cols if c in df_open.columns]].rename(columns=_open_cols)
+    st.dataframe(
+        df_open_show,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Total Invested":    st.column_config.NumberColumn(format="$%.0f"),
+            "Partial Proceeds":  st.column_config.NumberColumn(format="$%.0f"),
+            "Net Cost Remaining":st.column_config.NumberColumn(format="$%.0f"),
+            "Dividends":         st.column_config.NumberColumn(format="$%.0f"),
+            "Partial Realized":  st.column_config.NumberColumn(format="$%.0f",
+                help="Gain/loss on any shares already sold from this position."),
+        },
+    )
 
 # ── FIFO tracer ───────────────────────────────────────────────────────────────
 st.divider()
