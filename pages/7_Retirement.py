@@ -152,6 +152,25 @@ div[data-testid="stNumberInput"] input {
     font-size: 15px;
     font-weight: 600;
 }
+
+/* ── Account cards — green-bordered card style ── */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid rgba(16,185,129,0.30) !important;
+    border-radius: 10px !important;
+    background: rgba(16,185,129,0.04) !important;
+    padding: 4px 4px 0 4px !important;
+    transition: border-color 0.15s ease;
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    border-color: rgba(16,185,129,0.60) !important;
+    background: rgba(16,185,129,0.07) !important;
+}
+/* Dimmer style when account is excluded from projection */
+div[data-testid="stVerticalBlockBorderWrapper"]:has(input[aria-checked="true"]) {
+    border-color: rgba(100,116,139,0.30) !important;
+    background: rgba(100,116,139,0.04) !important;
+    opacity: 0.65;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -308,7 +327,7 @@ with tab1:
         Pass acc=None to render an empty placeholder (keeps column widths uniform)."""
         if acc is None:
             with col_ctx:
-                st.markdown("<div style='height:120px'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height:140px'></div>", unsafe_allow_html=True)
             return
 
         aid       = acc["account_id"]
@@ -320,21 +339,31 @@ with tab1:
         last_str  = fmt_currency(last) if last else "—"
 
         with col_ctx:
-            st.markdown(
-                f'<div class="acct-name">{icon} {aname}'
-                f'<span class="acct-type">· {typ_label}</span></div>',
-                unsafe_allow_html=True,
-            )
-            bal = st.number_input(
-                "Balance ($)", min_value=0.0, value=last, step=500.0,
-                format="%.2f", key=f"bal_{aid}", label_visibility="collapsed",
-            )
-            skipped = st.checkbox("⏭ Skip projection", key=f"skip_{aid}",
-                                  value=aid in skip_set)
-            st.markdown(
-                f'<div class="acct-last">Last saved: {last_str}</div>',
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                st.markdown(
+                    f'<div class="acct-name">{icon} {aname}'
+                    f'<span class="acct-type">· {typ_label}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                bal = st.number_input(
+                    "Balance ($)", min_value=0.0, value=last, step=500.0,
+                    format="%.2f", key=f"bal_{aid}", label_visibility="collapsed",
+                )
+                st.markdown(
+                    f'<div class="acct-last">Last saved: {last_str}</div>',
+                    unsafe_allow_html=True,
+                )
+                skipped = st.checkbox(
+                    "🚫 Exclude this account from projection",
+                    key=f"skip_{aid}",
+                    value=aid in skip_set,
+                    help=(
+                        "When checked, this entire account is removed from the "
+                        "retirement projection and all charts in Tab 2. "
+                        "Your saved balance history is NOT deleted — "
+                        "you can re-include it any time by unchecking."
+                    ),
+                )
 
         balance_inputs[aid] = bal
         if skipped:
