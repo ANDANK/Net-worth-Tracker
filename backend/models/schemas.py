@@ -9,6 +9,7 @@ class AccountType(str, Enum):
     ROTH_IRA = "roth_ira"
     TRADITIONAL_IRA = "traditional_ira"
     FOUR01K = "401k"
+    ROTH_401K = "roth_401k"
     SOLO_401K = "solo_401k"
     SEP_IRA = "sep_ira"
     HSA = "hsa"

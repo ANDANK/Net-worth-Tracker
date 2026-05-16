@@ -22,6 +22,7 @@ _ACCT_TYPE_LABELS = {
     "roth_ira":        "Roth IRA",
     "traditional_ira": "Traditional IRA",
     "401k":            "401(k)",
+    "roth_401k":       "Roth 401(k)",
     "solo_401k":       "Solo 401(k)",
     "sep_ira":         "SEP IRA",
     "hsa":             "HSA",

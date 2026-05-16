@@ -29,13 +29,14 @@ SCOPES = [
 ]
 
 SHEET_NAMES = {
-    "accounts": "Accounts",
-    "transactions": "Transactions",
-    "holdings": "Holdings Snapshot",
-    "manual": "Manual Accounts",
-    "networth": "Net Worth History",
-    "projections": "Projections",
-    "brokers": "Brokers",
+    "accounts":             "Accounts",
+    "transactions":         "Transactions",
+    "holdings":             "Holdings Snapshot",
+    "manual":               "Manual Accounts",
+    "networth":             "Net Worth History",
+    "projections":          "Projections",
+    "brokers":              "Brokers",
+    "retirement_balances":  "Retirement Balances",
 }
 
 HEADERS = {
@@ -65,6 +66,9 @@ HEADERS = {
     ],
     "brokers": [
         "broker_id", "broker_name", "active",
+    ],
+    "retirement_balances": [
+        "snapshot_id", "date", "account_id", "account_name", "balance", "upload_timestamp",
     ],
 }
 
