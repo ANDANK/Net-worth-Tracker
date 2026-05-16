@@ -294,22 +294,22 @@ def project_retirement(
             atype = acc.get("account_type", "")
             owner = acc.get("owner", "self")
 
-            bal_open   = balances.get(aid, 0.0)
-            growth_$   = bal_open * growth_rate
-            bal_grown  = bal_open + growth_$
-            contrib    = get_annual_contribution(atype, owner, year, self_dob, spouse_dob)
-            bal_close  = bal_grown + contrib
+            bal_open      = balances.get(aid, 0.0)
+            growth_amt    = bal_open * growth_rate
+            bal_grown     = bal_open + growth_amt
+            contrib       = get_annual_contribution(atype, owner, year, self_dob, spouse_dob)
+            bal_close     = bal_grown + contrib
             balances[aid] = bal_close
 
             rows.append({
-                "year":          year,
-                "account_id":    aid,
-                "account_name":  acc.get("account_name", ""),
-                "account_type":  atype,
-                "owner":         owner,
-                "balance":       round(bal_close, 2),
-                "contribution":  round(contrib, 2),
-                "growth_dollars": round(growth_$, 2),
+                "year":           year,
+                "account_id":     aid,
+                "account_name":   acc.get("account_name", ""),
+                "account_type":   atype,
+                "owner":          owner,
+                "balance":        round(bal_close, 2),
+                "contribution":   round(contrib, 2),
+                "growth_dollars": round(growth_amt, 2),
             })
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
