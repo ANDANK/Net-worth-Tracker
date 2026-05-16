@@ -18,6 +18,9 @@ from utils.auth import require_auth
 from utils.fmt import fmt_currency
 require_auth()
 
+import base64, json, re
+import streamlit.components.v1 as _components
+
 from services.accounts import list_accounts
 from services.retirement import (
     RETIREMENT_ACCOUNT_TYPES,
@@ -147,6 +150,24 @@ div[data-testid="stNumberInput"] input {
 .page-sub { font-size: 12px; color: #64748b; margin-top: 2px; }
 </style>
 """, unsafe_allow_html=True)
+
+# ── JS: select-all on focus so typing replaces 0 instead of appending ────────
+_components.html("""
+<script>
+(function() {
+  var doc = window.parent.document;
+  function attach() {
+    doc.querySelectorAll('input[type="number"]').forEach(function(el) {
+      if (!el._sol) {
+        el._sol = true;
+        el.addEventListener('focus', function() { this.select(); });
+      }
+    });
+  }
+  attach();
+  new MutationObserver(attach).observe(doc.body, {childList:true, subtree:true});
+})();
+</script>""", height=0)
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -286,20 +307,111 @@ if view in (_VIEW_RET, _VIEW_ALL) and current_year >= 2026:
 
 tab1, tab2 = st.tabs(["📥  Balance Input", "📊  Analytics & Projections"])
 
+# ── Claude vision: extract balances from statement image ─────────────────────
+def _extract_balances_from_image(img_bytes: bytes, media_type: str,
+                                  accounts: list[dict]) -> dict[str, float]:
+    """Call Claude vision to match balances in an image to known account IDs."""
+    try:
+        import anthropic as _anthropic
+    except ImportError:
+        raise RuntimeError("anthropic package not installed — add it to requirements.txt")
+
+    api_key = None
+    try:
+        api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
+    except Exception:
+        pass
+    if not api_key:
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY not found. "
+            "Add it to Streamlit Cloud secrets or your .env file."
+        )
+
+    client = _anthropic.Anthropic(api_key=api_key)
+
+    acct_list = "\n".join(
+        f'- id: "{a["account_id"]}"  name: "{a["account_name"]}"'
+        f'  type: "{_label(a.get("account_type",""))}"  owner: "{a.get("owner","")}"'
+        for a in accounts
+    )
+
+    prompt = f"""You are helping extract financial account balances from a statement or screenshot.
+
+Known accounts to match against:
+{acct_list}
+
+Instructions:
+1. Look at every number in the image that appears to be a dollar balance or total.
+2. Match each amount to the best-fitting account from the list above using account name,
+   type, or any label visible in the image (fuzzy matching is fine).
+3. Return ONLY a valid JSON object: account_id → balance (plain number, no $ or commas).
+   Example: {{"abc123": 125000.50, "def456": 8300.00}}
+4. Only include accounts where you can clearly identify a corresponding balance.
+5. If nothing matches, return an empty object: {{}}
+
+Do not include any explanation — output JSON only."""
+
+    response = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=512,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image",
+                 "source": {"type": "base64", "media_type": media_type,
+                            "data": base64.standard_b64encode(img_bytes).decode()}},
+                {"type": "text", "text": prompt},
+            ],
+        }],
+    )
+
+    raw = response.content[0].text.strip()
+    m = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
+    if m:
+        return {k: float(v) for k, v in json.loads(m.group()).items()}
+    return {}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Balance Input
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab1:
 
-    d_col, hint_col = st.columns([2, 5])
+    d_col, upload_col = st.columns([2, 5])
     with d_col:
         snap_date = st.date_input("📅 Snapshot Date", value=date.today())
-    with hint_col:
-        st.info(
-            "Enter the **current balance** for each account. "
-            "Use **Hide from forecast** to remove an account from Tab 2 projections "
-            "without deleting its history."
+    with upload_col:
+        uploaded = st.file_uploader(
+            "📎 Upload statement / screenshot to auto-fill balances (optional)",
+            type=["png", "jpg", "jpeg"],
+            label_visibility="collapsed",
+            help="Upload a PNG or JPG screenshot of your account statement. "
+                 "Claude will read the image and pre-fill balances below. "
+                 "You can edit before saving — nothing is saved automatically.",
         )
+        if uploaded:
+            ext = uploaded.name.rsplit(".", 1)[-1].lower()
+            media_type = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png"
+            with st.spinner("🔍 Reading balances from image…"):
+                try:
+                    extracted = _extract_balances_from_image(
+                        uploaded.read(), media_type, display_accounts
+                    )
+                    if extracted:
+                        for aid, amt in extracted.items():
+                            st.session_state[f"bal_{aid}"] = float(amt)
+                        st.session_state["_img_extracted"] = set(extracted.keys())
+                        st.success(
+                            f"✅ Found **{len(extracted)}** balance(s) in the image — "
+                            "values are pre-filled below. Verify, then click **Save All Balances**."
+                        )
+                    else:
+                        st.warning("⚠️ Couldn't match any balances from this image. "
+                                   "Enter values manually.")
+                except Exception as exc:
+                    st.error(f"Extraction failed: {exc}")
 
     try:
         last_bal = _compute_latest(_load_history())
@@ -308,6 +420,8 @@ with tab1:
 
     balance_inputs: dict[str, float] = {}
     skip_set: set[str] = set(st.session_state.get("ret_excluded", set()))
+
+    _extracted_ids = st.session_state.get("_img_extracted", set())
 
     def _account_card(acc, col_ctx):
         if acc is None:
@@ -319,18 +433,25 @@ with tab1:
         aname    = acc.get("account_name", "Unknown")
         last     = float(last_bal.get(aid, 0) or 0)
         last_str = fmt_currency(last) if last else "—"
+        from_img = aid in _extracted_ids
+
         with col_ctx:
             with st.container(border=True):
+                badge = ' <span style="font-size:10px;color:#34d399;font-weight:500">📷 from image</span>' if from_img else ""
                 st.markdown(
                     f'<div class="acct-name">{_icon(atype)} {aname}'
-                    f'<span class="acct-type">· {_label(atype)}</span></div>',
+                    f'<span class="acct-type">· {_label(atype)}</span>{badge}</div>',
                     unsafe_allow_html=True,
                 )
+                # value=0.0 only used on first render (fresh session).
+                # After image extraction st.session_state[f"bal_{aid}"] is set,
+                # so Streamlit uses that instead of value=.
                 bal = st.number_input(
-                    "Balance", min_value=0.0, value=last, step=500.0,
+                    "Balance", min_value=0.0, value=0.0, step=500.0,
                     format="%.2f", key=f"bal_{aid}", label_visibility="collapsed",
                 )
-                st.markdown(f'<div class="acct-last">Last: {last_str}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="acct-last">Last saved: {last_str}</div>',
+                            unsafe_allow_html=True)
                 skipped = st.checkbox(
                     "Hide from forecast",
                     key=f"skip_{aid}",
@@ -437,6 +558,10 @@ with tab1:
                 try:
                     save_retirement_snapshot(entries, snap_date.isoformat())
                     st.success(f"✅ Saved {len(entries)} balance(s) for {snap_date}.")
+                    # Reset all inputs to 0 and clear extraction state
+                    for aid in balance_inputs:
+                        st.session_state.pop(f"bal_{aid}", None)
+                    st.session_state.pop("_img_extracted", None)
                     st.cache_data.clear()
                     st.rerun()
                 except Exception as exc:
