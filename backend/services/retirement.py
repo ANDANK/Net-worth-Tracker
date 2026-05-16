@@ -172,7 +172,10 @@ def load_retirement_history() -> list[dict]:
     """Return all saved snapshots, newest first."""
     records = sheets_client.get_all_records("retirement_balances")
     for r in records:
-        # Strip currency formatting ($, commas, spaces) before parsing
+        # Normalise account_id — trim whitespace so manual edits still match
+        if "account_id" in r:
+            r["account_id"] = str(r["account_id"]).strip()
+        # Strip currency formatting ($, commas) before parsing balance
         raw = str(r.get("balance", "") or "").strip().replace("$", "").replace(",", "")
         try:
             r["balance"] = float(raw)

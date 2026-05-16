@@ -450,8 +450,11 @@ with tab1:
                     "Balance", min_value=0.0, value=0.0, step=500.0,
                     format="%.2f", key=f"bal_{aid}", label_visibility="collapsed",
                 )
-                st.markdown(f'<div class="acct-last">Last saved: {last_str}</div>',
-                            unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="acct-last">Last saved: {last_str}'
+                    f' &nbsp;<code style="font-size:9px;color:#475569">{aid}</code></div>',
+                    unsafe_allow_html=True,
+                )
                 skipped = st.checkbox(
                     "Hide from forecast",
                     key=f"skip_{aid}",
@@ -673,6 +676,51 @@ with tab2:
               fmt_currency(max(gap,0),0) if gap>0 else "✅ On Track",
               delta=f"{self_name} {ak_age} · {spouse_name} {pa_age} in {target_year}",
               delta_color="off")
+
+    # ── Data diagnostics (collapsed) ─────────────────────────────────────────
+    _history_ids  = {str(r.get("account_id","")).strip() for r in history if r.get("account_id","")}
+    _unmatched_ids = _history_ids - disp_ids
+    _missing_ids   = disp_ids - _history_ids
+    _diag_label    = (
+        f"🔍 Data Diagnostics"
+        + (f" — ⚠️ {len(_unmatched_ids)} unrecognised sheet ID(s)" if _unmatched_ids else "")
+        + (f" — ⚠️ {len(_missing_ids)} account(s) with no history" if _missing_ids else "")
+    )
+    with st.expander(_diag_label, expanded=bool(_unmatched_ids or _missing_ids)):
+        st.caption("Use this to verify the account_id values in your Retirement Balances sheet match the Accounts sheet.")
+        dcol1, dcol2 = st.columns(2)
+        with dcol1:
+            st.markdown("**Expected accounts (current view)**")
+            for a in display_accounts:
+                aid = a["account_id"]
+                bal = latest.get(aid)
+                if aid in _history_ids and bal:
+                    tag = f"✅ {fmt_currency(float(bal or 0))}"
+                elif aid in _history_ids:
+                    tag = "⚠️ found but balance = $0"
+                else:
+                    tag = "❌ no history — save a balance in Tab 1"
+                st.markdown(
+                    f"<div style='font-size:12px;margin-bottom:4px'>"
+                    f"<code style='font-size:11px'>{aid}</code><br>"
+                    f"<span style='color:#94a3b8'>{a['account_name']}</span> · {tag}</div>",
+                    unsafe_allow_html=True,
+                )
+        with dcol2:
+            if _unmatched_ids:
+                st.markdown("**⚠️ Sheet IDs not matching any account in this view**")
+                st.caption("These rows exist in the Retirement Balances sheet but their account_id doesn't match any active account. Fix the account_id in the sheet, or switch views.")
+                for uid in sorted(_unmatched_ids):
+                    sample = next((r for r in history if str(r.get("account_id","")).strip() == uid), {})
+                    st.markdown(
+                        f"<div style='font-size:12px;margin-bottom:4px;color:#f87171'>"
+                        f"<code style='font-size:11px'>{uid}</code><br>"
+                        f"<span style='color:#94a3b8'>Name in sheet: {sample.get('account_name','?')} · "
+                        f"Balance: {fmt_currency(float(sample.get('balance',0) or 0))}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.success("✅ All history records match accounts in the current view.")
 
     st.divider()
 
