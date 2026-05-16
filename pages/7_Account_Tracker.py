@@ -108,6 +108,12 @@ button[aria-selected="true"][data-baseweb="tab"] {
     border-bottom: 1px solid rgba(245,158,11,0.2);
     padding-bottom: 4px; margin: 8px 0 6px 0;
 }
+.section-joint {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px; font-weight: 600; color: #93c5fd;
+    border-bottom: 1px solid rgba(96,165,250,0.2);
+    padding-bottom: 4px; margin: 8px 0 6px 0;
+}
 
 /* ── Account cards ── */
 div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -370,7 +376,7 @@ with tab1:
 
         if j_list:
             st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
-            st.markdown('<div class="section-nonret">🤝 Joint</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-joint">🤝 Joint</div>', unsafe_allow_html=True)
             padded_j = j_list + ([None] * (3 - len(j_list) % 3 if len(j_list) % 3 else 0))
             for i in range(0, len(padded_j), 3):
                 jc1, jc2, jc3 = st.columns(3, gap="medium")
