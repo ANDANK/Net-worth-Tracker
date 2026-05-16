@@ -20,9 +20,32 @@ import plotly.graph_objects as go
 import pandas as pd
 from services.networth import get_dashboard_summary, get_networth_history
 
-# ── Sidebar logout ────────────────────────────────────────────────────────────
+# ── Shared sidebar CSS (rename "app" → logo, applied on every page) ──────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+[data-testid="stSidebarNav"]::before {
+    content: "💰 NetWorth Tracker";
+    display: block;
+    font-family: 'Inter', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: #f1f5f9;
+    padding: 20px 16px 8px 16px;
+    letter-spacing: -0.02em;
+}
+[data-testid="stSidebarNav"] li:first-child a span { display: none; }
+[data-testid="stSidebarNav"] li:first-child a::before {
+    content: "🏠  Dashboard";
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: #94a3b8;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Sidebar: compact sign-out only ────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("### 💰 NetWorth Tracker")
     if st.button("🚪 Sign out", use_container_width=True):
         st.session_state.authenticated = False
         st.rerun()

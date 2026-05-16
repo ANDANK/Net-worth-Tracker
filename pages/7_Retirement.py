@@ -34,13 +34,129 @@ from services.retirement import (
     yearend_totals,
 )
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    if st.button("🚪 Sign out", use_container_width=True):
-        st.session_state.authenticated = False
-        st.rerun()
+# ── Global CSS ────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-    st.divider()
+/* ── Sidebar logo / rename "app" ── */
+[data-testid="stSidebarNav"]::before {
+    content: "💰 NetWorth Tracker";
+    display: block;
+    font-family: 'Inter', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: #f1f5f9;
+    padding: 20px 16px 8px 16px;
+    letter-spacing: -0.02em;
+}
+/* Hide the auto-generated "app" label in the nav */
+[data-testid="stSidebarNav"] li:first-child a span { display: none; }
+[data-testid="stSidebarNav"] li:first-child a::before {
+    content: "🏠  Dashboard";
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: #94a3b8;
+}
+
+/* ── Top bar ── */
+.top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    padding: 6px 0 12px 0;
+    margin-bottom: 10px;
+}
+.top-bar-title {
+    font-family: 'Inter', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: #f1f5f9;
+    letter-spacing: -0.03em;
+}
+.top-bar-sub {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+/* ── Section headers ── */
+.section-self {
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: #10b981;
+    background: rgba(16,185,129,0.08);
+    border-left: 3px solid #10b981;
+    border-radius: 0 6px 6px 0;
+    padding: 6px 14px;
+    margin: 4px 0 10px 0;
+    letter-spacing: -0.01em;
+}
+.section-self span { color: #6ee7b7; font-weight: 400; font-size: 12px; }
+.section-spouse {
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: #f59e0b;
+    background: rgba(245,158,11,0.08);
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 6px 6px 0;
+    padding: 6px 14px;
+    margin: 4px 0 10px 0;
+    letter-spacing: -0.01em;
+}
+.section-spouse span { color: #fcd34d; font-weight: 400; font-size: 12px; }
+.section-joint {
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: #60a5fa;
+    background: rgba(96,165,250,0.08);
+    border-left: 3px solid #60a5fa;
+    border-radius: 0 6px 6px 0;
+    padding: 6px 14px;
+    margin: 4px 0 10px 0;
+}
+
+/* ── Account card label ── */
+.acct-name {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: #e2e8f0;
+    letter-spacing: 0.005em;
+    margin-bottom: 2px;
+}
+.acct-type {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 400;
+    color: #64748b;
+    margin-left: 4px;
+}
+.acct-last {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    color: #475569;
+    margin-top: 3px;
+    margin-bottom: 10px;
+}
+
+/* ── Force all number inputs to same height ── */
+div[data-testid="stNumberInput"] input {
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Sidebar — people config only (no sign-out — moved to top bar) ─────────────
+with st.sidebar:
     st.markdown("**People**")
     self_name   = st.text_input("Person 1 (Self)",   value="AK")
     spouse_name = st.text_input("Person 2 (Spouse)", value="PA")
@@ -96,19 +212,29 @@ def _compute_latest(history: list[dict]) -> dict[str, float]:
             latest[aid] = float(r.get("balance", 0) or 0)
     return latest
 
-# ── Page header ───────────────────────────────────────────────────────────────
-hdr_l, hdr_r = st.columns([3, 1])
-with hdr_l:
-    st.title("🎯 Retirement Tracker")
-    st.caption(
-        f"Tracks all retirement accounts for **{self_name}** and **{spouse_name}**. "
-        f"Projected through **{PROJECTION_END_YEAR}** using IRS contribution limits "
-        f"(2024–2025 confirmed · 2026+ estimated)."
+# ── Top bar: title + home + sign-out ─────────────────────────────────────────
+hdr_title, hdr_gap, hdr_refresh, hdr_home, hdr_out = st.columns([5, 2, 1.2, 1, 1])
+with hdr_title:
+    st.markdown(
+        f'<div class="top-bar-title">🎯 Retirement Tracker</div>'
+        f'<div class="top-bar-sub">Tracks all retirement accounts for '
+        f'<b>{self_name}</b> &amp; <b>{spouse_name}</b> · '
+        f'Projected through <b>{PROJECTION_END_YEAR}</b> using IRS limits '
+        f'(2024–2025 confirmed · 2026+ estimated)</div>',
+        unsafe_allow_html=True,
     )
-with hdr_r:
-    if st.button("🔄 Refresh data", use_container_width=True):
+with hdr_refresh:
+    if st.button("🔄 Refresh", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
+with hdr_home:
+    st.page_link("app.py", label="🏠 Home", use_container_width=True)
+with hdr_out:
+    if st.button("🚪 Sign out", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
+
+st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
 
 # ── Load accounts ─────────────────────────────────────────────────────────────
 try:
@@ -140,7 +266,6 @@ if current_year >= 2026:
     missing = []
     if not _has_self_roth401k:
         missing.append(f"{self_name} Roth 401(k) (Self) — catch-up from 2025")
-    # PA turns 50 in 2030
     if not _has_spouse_roth401k and current_year >= 2029:
         missing.append(f"{spouse_name} Roth 401(k) (Spouse) — catch-up from 2030")
     if missing:
@@ -157,15 +282,6 @@ tab1, tab2 = st.tabs(["📥  Balance Input", "📊  Analytics & Projections"])
 # TAB 1 — Balance Input
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab1:
-
-    # ── Custom card CSS ──────────────────────────────────────────────────────
-    st.markdown("""
-    <style>
-    .ret-label  { font-size:12px; color:#94a3b8; font-weight:600; margin-bottom:2px; }
-    .ret-last   { font-size:11px; color:#64748b; margin-top:4px; }
-    .ret-section{ font-size:17px; font-weight:700; margin:8px 0 4px 0; }
-    </style>
-    """, unsafe_allow_html=True)
 
     # ── Date + hint ──────────────────────────────────────────────────────────
     d_col, hint_col = st.columns([2, 5])
@@ -187,19 +303,26 @@ with tab1:
     balance_inputs: dict[str, float] = {}
     skip_set: set[str] = set(st.session_state.get("ret_excluded", set()))
 
-    def _account_card(acc: dict, col_ctx):
-        """Render one account input block inside a given column context."""
-        aid   = acc["account_id"]
-        atype = acc.get("account_type", "")
-        aname = acc.get("account_name", "Unknown")
-        icon  = _icon(atype)
+    def _account_card(acc: dict | None, col_ctx):
+        """Render one account input block inside a given column context.
+        Pass acc=None to render an empty placeholder (keeps column widths uniform)."""
+        if acc is None:
+            with col_ctx:
+                st.markdown("<div style='height:120px'></div>", unsafe_allow_html=True)
+            return
+
+        aid       = acc["account_id"]
+        atype     = acc.get("account_type", "")
+        aname     = acc.get("account_name", "Unknown")
+        icon      = _icon(atype)
         typ_label = _label(atype)
-        last  = float(last_bal.get(aid, 0) or 0)
+        last      = float(last_bal.get(aid, 0) or 0)
+        last_str  = fmt_currency(last) if last else "—"
 
         with col_ctx:
             st.markdown(
-                f'<div class="ret-label">{icon} {aname}'
-                f'<span style="color:#475569;font-weight:400"> · {typ_label}</span></div>',
+                f'<div class="acct-name">{icon} {aname}'
+                f'<span class="acct-type">· {typ_label}</span></div>',
                 unsafe_allow_html=True,
             )
             bal = st.number_input(
@@ -208,9 +331,10 @@ with tab1:
             )
             skipped = st.checkbox("⏭ Skip projection", key=f"skip_{aid}",
                                   value=aid in skip_set)
-            last_str = f"Last: {fmt_currency(last)}" if last else "Last: —"
-            st.markdown(f'<div class="ret-last">{last_str}</div>', unsafe_allow_html=True)
-            st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="acct-last">Last saved: {last_str}</div>',
+                unsafe_allow_html=True,
+            )
 
         balance_inputs[aid] = bal
         if skipped:
@@ -223,43 +347,42 @@ with tab1:
 
     with c_self:
         st.markdown(
-            f'<div class="ret-section">👤 {self_name} <span style="color:#475569;'
-            f'font-size:13px;font-weight:400">(Self)</span></div>',
+            f'<div class="section-self">👤 {self_name} <span>(Self)</span></div>',
             unsafe_allow_html=True,
         )
-        st.markdown("---")
         if self_accs:
-            # Group by 2 per row within this column
-            pairs = [self_accs[i:i+2] for i in range(0, len(self_accs), 2)]
-            for pair in pairs:
-                sub_cols = st.columns(len(pair), gap="medium")
-                for acc, sc in zip(pair, sub_cols):
-                    _account_card(acc, sc)
+            # Always 2 sub-columns for uniform card width — pad last row with None
+            padded = self_accs + ([None] * (2 - len(self_accs) % 2)) if len(self_accs) % 2 else self_accs
+            for i in range(0, len(padded), 2):
+                sub_l, sub_r = st.columns(2, gap="medium")
+                _account_card(padded[i],     sub_l)
+                _account_card(padded[i + 1], sub_r)
         else:
             st.caption("No Self accounts found.")
 
     with c_spouse:
         st.markdown(
-            f'<div class="ret-section">👥 {spouse_name} <span style="color:#475569;'
-            f'font-size:13px;font-weight:400">(Spouse)</span></div>',
+            f'<div class="section-spouse">👥 {spouse_name} <span>(Spouse)</span></div>',
             unsafe_allow_html=True,
         )
-        st.markdown("---")
         if spouse_accs:
-            pairs = [spouse_accs[i:i+2] for i in range(0, len(spouse_accs), 2)]
-            for pair in pairs:
-                sub_cols = st.columns(len(pair), gap="medium")
-                for acc, sc in zip(pair, sub_cols):
-                    _account_card(acc, sc)
+            padded = spouse_accs + ([None] * (2 - len(spouse_accs) % 2)) if len(spouse_accs) % 2 else spouse_accs
+            for i in range(0, len(padded), 2):
+                sub_l, sub_r = st.columns(2, gap="medium")
+                _account_card(padded[i],     sub_l)
+                _account_card(padded[i + 1], sub_r)
         else:
             st.caption("No Spouse accounts found.")
 
     if joint_accs:
         st.markdown("---")
-        st.markdown('<div class="ret-section">🤝 Joint Accounts</div>', unsafe_allow_html=True)
-        j_cols = st.columns(min(len(joint_accs), 3), gap="medium")
-        for acc, jc in zip(joint_accs, j_cols):
-            _account_card(acc, jc)
+        st.markdown('<div class="section-joint">🤝 Joint Accounts</div>', unsafe_allow_html=True)
+        j_padded = joint_accs + ([None] * (3 - len(joint_accs) % 3)) if len(joint_accs) % 3 else joint_accs
+        for i in range(0, len(j_padded), 3):
+            jc1, jc2, jc3 = st.columns(3, gap="medium")
+            _account_card(j_padded[i],     jc1)
+            _account_card(j_padded[i + 1], jc2)
+            _account_card(j_padded[i + 2], jc3)
 
     st.session_state["ret_excluded"] = skip_set
 
@@ -295,14 +418,14 @@ with tab1:
         limit_rows = []
         for yr, lim in sorted(IRS_LIMITS.items()):
             limit_rows.append({
-                "Year":        yr,
-                "401k Regular": lim["irs_401k"],
+                "Year":                yr,
+                "401k Regular":        lim["irs_401k"],
                 "401k Catch-up (50+)": lim["irs_401k_cu"],
-                "IRA":         lim["ira"],
-                "IRA Catch-up (50+)": lim["ira_cu"],
-                "HSA (Self)":  lim["hsa_self"],
-                "HSA (Family)": lim["hsa_fam"],
-                "Status":      "✅ Confirmed" if lim["confirmed"] else "📊 Estimated",
+                "IRA":                 lim["ira"],
+                "IRA Catch-up (50+)":  lim["ira_cu"],
+                "HSA (Self)":          lim["hsa_self"],
+                "HSA (Family)":        lim["hsa_fam"],
+                "Status":              "✅ Confirmed" if lim["confirmed"] else "📊 Estimated",
             })
         df_lim = pd.DataFrame(limit_rows)
         st.dataframe(
@@ -324,7 +447,7 @@ with tab1:
 with tab2:
 
     # ── Controls ─────────────────────────────────────────────────────────────
-    ctrl1, ctrl2, ctrl3 = st.columns([3, 2, 3])
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([3, 2, 2, 3])
     with ctrl1:
         growth_pct = st.slider(
             "📈 Annual Growth Rate", min_value=3.0, max_value=15.0,
@@ -338,11 +461,24 @@ with tab2:
             value=current_year,
         )
     with ctrl3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.caption(
-            "IRS limits: ✅ 2024–2025 confirmed · 📊 2026+ projected estimates. "
-            "Contributions assumed at year-end; growth applied on opening balance first."
+        target_year = st.number_input(
+            "🎯 Target Year",
+            min_value=current_year + 1, max_value=PROJECTION_END_YEAR,
+            value=min(2040, PROJECTION_END_YEAR),
         )
+    with ctrl4:
+        target_amount = st.select_slider(
+            "🏁 Retirement Target",
+            options=[250_000, 500_000, 750_000, 1_000_000, 1_250_000,
+                     1_500_000, 2_000_000, 2_500_000, 3_000_000, 4_000_000, 5_000_000],
+            value=2_000_000,
+            format_func=lambda v: f"${v/1e6:.2f}M" if v >= 1e6 else f"${v//1000}K",
+        )
+
+    st.caption(
+        "IRS limits: ✅ 2024–2025 confirmed · 📊 2026+ projected estimates. "
+        "Contributions assumed at year-end; growth applied on opening balance first."
+    )
 
     # ── Load data ─────────────────────────────────────────────────────────────
     try:
@@ -366,36 +502,51 @@ with tab2:
     )
 
     # ── Totals ────────────────────────────────────────────────────────────────
-    total_now    = sum(v for aid, v in latest.items() if aid not in excluded)
-    self_now     = sum(v for aid, v in latest.items()
-                       if aid not in excluded
-                       and any(a["account_id"]==aid and a.get("owner")=="self"   for a in ret_accounts))
-    spouse_now   = sum(v for aid, v in latest.items()
-                       if aid not in excluded
-                       and any(a["account_id"]==aid and a.get("owner")=="spouse" for a in ret_accounts))
+    total_now   = sum(v for aid, v in latest.items() if aid not in excluded)
+    self_now    = sum(v for aid, v in latest.items()
+                      if aid not in excluded
+                      and any(a["account_id"]==aid and a.get("owner")=="self"   for a in ret_accounts))
+    spouse_now  = sum(v for aid, v in latest.items()
+                      if aid not in excluded
+                      and any(a["account_id"]==aid and a.get("owner")=="spouse" for a in ret_accounts))
 
-    proj_2040    = 0.0
-    self_2040    = 0.0
-    spouse_2040  = 0.0
-    if not proj_df.empty and PROJECTION_END_YEAR in proj_df["year"].values:
-        yr2040 = proj_df[proj_df["year"] == PROJECTION_END_YEAR]
-        proj_2040   = yr2040["balance"].sum()
-        self_2040   = yr2040[yr2040["owner"] == "self"]["balance"].sum()
-        spouse_2040 = yr2040[yr2040["owner"] == "spouse"]["balance"].sum()
+    proj_2040   = 0.0
+    self_2040   = 0.0
+    spouse_2040 = 0.0
+    proj_at_target_yr = 0.0
+    if not proj_df.empty:
+        if PROJECTION_END_YEAR in proj_df["year"].values:
+            yr2040 = proj_df[proj_df["year"] == PROJECTION_END_YEAR]
+            proj_2040   = yr2040["balance"].sum()
+            self_2040   = yr2040[yr2040["owner"] == "self"]["balance"].sum()
+            spouse_2040 = yr2040[yr2040["owner"] == "spouse"]["balance"].sum()
+        if target_year in proj_df["year"].values:
+            proj_at_target_yr = proj_df[proj_df["year"] == target_year]["balance"].sum()
 
     # ── KPI cards ─────────────────────────────────────────────────────────────
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Combined Balance", fmt_currency(total_now))
     k2.metric(f"{self_name} Balance", fmt_currency(self_now))
     k3.metric(f"{spouse_name} Balance", fmt_currency(spouse_now))
-    k4.metric(f"Projected {PROJECTION_END_YEAR}",
-              fmt_currency(proj_2040),
-              delta=f"+{fmt_currency(proj_2040 - total_now)}" if total_now else None)
-    years_left = PROJECTION_END_YEAR - current_year
-    ak_age_2040 = PROJECTION_END_YEAR - self_dob.year
-    pa_age_2040 = PROJECTION_END_YEAR - spouse_dob.year
-    k5.metric("Years to 2040", f"{years_left}y",
-              delta=f"{self_name} {ak_age_2040} · {spouse_name} {pa_age_2040}")
+    k4.metric(
+        f"At Target {target_year}",
+        fmt_currency(proj_at_target_yr),
+        delta=(
+            f"{fmt_currency(proj_at_target_yr - target_amount)} vs goal"
+            if proj_at_target_yr > 0 else None
+        ),
+        delta_color="normal",
+    )
+    gap_to_target = target_amount - proj_at_target_yr
+    years_to_target = target_year - current_year
+    ak_at_target = target_year - self_dob.year
+    pa_at_target = target_year - spouse_dob.year
+    k5.metric(
+        f"Gap to {fmt_currency(target_amount, 0)}",
+        fmt_currency(max(gap_to_target, 0), 0) if gap_to_target > 0 else "✅ On Track",
+        delta=f"{self_name} {ak_at_target} · {spouse_name} {pa_at_target} in {target_year}",
+        delta_color="off",
+    )
 
     st.divider()
 
@@ -411,14 +562,11 @@ with tab2:
     with hist_col:
         st.subheader("📈 Balance Over Time")
         fig_hist = go.Figure()
-        color_self   = "#10b981"
-        color_spouse = "#f59e0b"
-        color_pool   = {
+        color_pool = {
             "roth_ira": "#06b6d4", "traditional_ira": "#8b5cf6",
             "401k": "#3b82f6", "roth_401k": "#60a5fa",
             "hsa": "#f97316", "sep_ira": "#ec4899", "solo_401k": "#a78bfa",
         }
-
         for acc in ret_accounts:
             aid   = acc["account_id"]
             aname = acc["account_name"]
@@ -433,8 +581,6 @@ with tab2:
                 opacity=0.75,
                 hovertemplate=f"{aname}<br>%{{x|%b %Y}}: $%{{y:,.0f}}<extra></extra>",
             ))
-
-        # Bold combined total
         df_comb = df_h.groupby("date")["balance"].sum().reset_index().sort_values("date")
         fig_hist.add_trace(go.Scatter(
             x=df_comb["date"], y=df_comb["balance"],
@@ -567,15 +713,11 @@ with tab2:
     else:
         ye_chart, ye_table = st.columns([1.6, 1])
         with ye_chart:
-            bar_colors = []
-            for i, row in df_ye.iterrows():
-                if i == 0 or pd.isna(row["yoy_change"]):
-                    bar_colors.append("#3b82f6")
-                elif row["yoy_change"] >= 0:
-                    bar_colors.append("#10b981")
-                else:
-                    bar_colors.append("#ef4444")
-
+            bar_colors = [
+                "#3b82f6" if i == 0 or pd.isna(row["yoy_change"])
+                else ("#10b981" if row["yoy_change"] >= 0 else "#ef4444")
+                for i, row in df_ye.iterrows()
+            ]
             fig_ye = go.Figure(go.Bar(
                 x=df_ye["year"].astype(str), y=df_ye["total"],
                 marker_color=bar_colors,
@@ -636,19 +778,38 @@ with tab2:
             hovertemplate="Combined %{x}: $%{y:,.0f}<extra></extra>",
         ))
 
-        # Milestone reference lines
+        # User-selected target line
+        fig_proj.add_hline(
+            y=target_amount, line_dash="dash", line_color="#f43f5e", line_width=2,
+            annotation_text=f"🎯 Goal: {fmt_currency(target_amount, 0)}",
+            annotation_position="right",
+            annotation_font=dict(size=12, color="#f43f5e"),
+        )
+
+        # Target year marker
+        if target_year in proj_comb["year"].values:
+            ty_val = float(proj_comb[proj_comb["year"] == target_year]["balance"].iloc[0])
+            fig_proj.add_vline(
+                x=target_year, line_dash="dot", line_color="rgba(244,63,94,0.4)",
+                annotation_text=f"{target_year}",
+                annotation_position="top",
+                annotation_font_size=11,
+            )
+
+        # Standard milestone reference lines
         max_proj = proj_comb["balance"].max()
-        for target, lbl in [(500_000,"$500K"),(1_000_000,"$1M"),(1_500_000,"$1.5M"),(2_000_000,"$2M"),(3_000_000,"$3M")]:
-            if max_proj >= target * 0.8:
+        for tgt, lbl in [(500_000,"$500K"),(1_000_000,"$1M"),(1_500_000,"$1.5M"),
+                         (2_000_000,"$2M"),(3_000_000,"$3M")]:
+            if tgt != target_amount and max_proj >= tgt * 0.8:
                 fig_proj.add_hline(
-                    y=target, line_dash="dot", line_color="rgba(255,255,255,0.18)",
+                    y=tgt, line_dash="dot", line_color="rgba(255,255,255,0.12)",
                     annotation_text=lbl, annotation_position="right",
-                    annotation_font_size=11,
+                    annotation_font_size=10,
                 )
 
         fig_proj.update_layout(
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            height=400, margin=dict(l=0, r=70, t=8, b=0),
+            height=420, margin=dict(l=0, r=90, t=8, b=0),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             xaxis=dict(showgrid=False, dtick=1, tickangle=-45),
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
@@ -657,7 +818,7 @@ with tab2:
         )
         st.plotly_chart(fig_proj, use_container_width=True)
 
-        # ── Growth vs Contributions stacked waterfall ─────────────────────────
+        # ── Growth vs Contributions stacked bar ───────────────────────────────
         st.subheader("💰 Annual Contributions by Account")
         contrib_df = proj_df[proj_df["contribution"] > 0].copy()
         if not contrib_df.empty:
@@ -689,20 +850,23 @@ with tab2:
             tbl = tbl.merge(proj_spouse.rename(columns={"balance": f"{spouse_name}"}), on="year", how="left")
             ann_contrib = proj_df.groupby("year")["contribution"].sum().reset_index()
             ann_growth  = proj_df.groupby("year")["growth_dollars"].sum().reset_index()
-            tbl = tbl.merge(ann_contrib.rename(columns={"contribution":    "Contributions"}), on="year", how="left")
-            tbl = tbl.merge(ann_growth.rename(columns={"growth_dollars": "Growth $"}),        on="year", how="left")
+            tbl = tbl.merge(ann_contrib.rename(columns={"contribution":   "Contributions"}), on="year", how="left")
+            tbl = tbl.merge(ann_growth.rename(columns={"growth_dollars":  "Growth $"}),      on="year", how="left")
             tbl["IRS Status"] = tbl["year"].apply(
                 lambda y: "✅ Confirmed" if y in _confirmed else "📊 Estimated"
+            )
+            tbl["vs Goal"] = tbl["balance"].apply(
+                lambda v: f"{'✅' if v >= target_amount else '❌'} {fmt_currency(abs(v - target_amount), 0)} {'ahead' if v >= target_amount else 'short'}"
             )
             tbl.rename(columns={"year": "Year", "balance": "Combined"}, inplace=True)
             st.dataframe(
                 tbl, hide_index=True, use_container_width=True,
                 column_config={
-                    "Combined":      st.column_config.NumberColumn(format="$%.0f"),
-                    f"{self_name}":  st.column_config.NumberColumn(format="$%.0f"),
+                    "Combined":       st.column_config.NumberColumn(format="$%.0f"),
+                    f"{self_name}":   st.column_config.NumberColumn(format="$%.0f"),
                     f"{spouse_name}": st.column_config.NumberColumn(format="$%.0f"),
-                    "Contributions": st.column_config.NumberColumn(format="$%.0f"),
-                    "Growth $":      st.column_config.NumberColumn(format="$%.0f"),
+                    "Contributions":  st.column_config.NumberColumn(format="$%.0f"),
+                    "Growth $":       st.column_config.NumberColumn(format="$%.0f"),
                 },
             )
 
@@ -711,30 +875,33 @@ with tab2:
         # ── Milestone tracker ─────────────────────────────────────────────────
         st.subheader("🎯 Retirement Milestones")
         milestones = [250_000, 500_000, 750_000, 1_000_000, 1_500_000, 2_000_000, 3_000_000]
+        if target_amount not in milestones:
+            milestones.append(target_amount)
+        milestones.sort()
+
         found = []
-        for target in milestones:
-            hit = proj_comb[proj_comb["balance"] >= target]
+        for tgt in milestones:
+            hit = proj_comb[proj_comb["balance"] >= tgt]
+            lbl = f"${tgt/1e6:.2f}M" if tgt >= 1e6 else f"${tgt//1000}K"
             if not hit.empty:
                 yr = int(hit.iloc[0]["year"])
                 ak_age = yr - self_dob.year
                 pa_age = yr - spouse_dob.year
-                found.append({
-                    "label": f"${target/1e6:.2f}M" if target >= 1e6 else f"${target//1000}K",
-                    "year":  yr,
-                    "ak":    ak_age,
-                    "pa":    pa_age,
-                })
+                found.append({"label": lbl, "year": yr, "ak": ak_age, "pa": pa_age, "reached": True})
+            else:
+                found.append({"label": lbl, "year": "—", "ak": "—", "pa": "—", "reached": False})
 
         if found:
             ms_cols = st.columns(min(len(found), 4))
             for i, m in enumerate(found):
                 with ms_cols[i % 4]:
-                    st.metric(
-                        m["label"], str(m["year"]),
-                        delta=f"{self_name} {m['ak']} · {spouse_name} {m['pa']}",
-                    )
-        else:
-            st.info("No milestones reached in the projection — try a higher growth rate or add balances.")
+                    if m["reached"]:
+                        st.metric(
+                            m["label"], str(m["year"]),
+                            delta=f"{self_name} {m['ak']} · {spouse_name} {m['pa']}",
+                        )
+                    else:
+                        st.metric(m["label"], "Beyond 2040", delta="Not reached", delta_color="off")
 
         st.divider()
 
