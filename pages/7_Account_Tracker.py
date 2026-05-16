@@ -347,7 +347,25 @@ with tab1:
 
     def _render_owner_grid(accounts):
         s_list, p_list, j_list = _split_by_owner(accounts)
-        c_self, c_spouse = st.columns(2, gap="large")
+        c_self, c_sep, c_spouse = st.columns([1, 0.035, 1], gap="small")
+
+        # ── Vertical gradient separator ───────────────────────────────────────
+        with c_sep:
+            st.markdown("""
+            <div style="display:flex;justify-content:center;height:100%;padding-top:10px;">
+              <div style="
+                width:2px; min-height:320px;
+                background: linear-gradient(
+                  to bottom,
+                  transparent        0%,
+                  rgba(16,185,129,.55) 18%,
+                  rgba(139,92,246,.7)  50%,
+                  rgba(245,158,11,.55) 82%,
+                  transparent        100%
+                );
+                border-radius:2px;
+              "></div>
+            </div>""", unsafe_allow_html=True)
 
         def _padded_pairs(lst):
             return lst + ([None] * (2 - len(lst) % 2 if len(lst) % 2 else 0))
