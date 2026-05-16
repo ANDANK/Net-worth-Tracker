@@ -16,6 +16,30 @@ from services.manual_accounts import list_manual_accounts, add_manual_entry
 from services.brokers import list_brokers
 from models.schemas import AccountCreate, ManualAccountCreate
 
+# ── Human-readable labels ──────────────────────────────────────────────────────
+_ACCT_TYPE_LABELS = {
+    "brokerage":       "Brokerage",
+    "roth_ira":        "Roth IRA",
+    "traditional_ira": "Traditional IRA",
+    "401k":            "401(k)",
+    "solo_401k":       "Solo 401(k)",
+    "sep_ira":         "SEP IRA",
+    "hsa":             "HSA",
+    "fsa":             "FSA",
+    "crypto":          "Crypto",
+    "savings":         "Savings",
+    "checking":        "Checking",
+    "treasury":        "Treasury",
+    "cd":              "CD",
+    "real_estate":     "Real Estate",
+}
+_OWNER_LABELS  = {"self": "Self", "spouse": "Spouse", "joint": "Joint"}
+_TAX_LABELS    = {"taxable": "Taxable", "tax_deferred": "Tax-Deferred", "tax_free": "Tax-Free"}
+
+def _fmt_acct(v):  return _ACCT_TYPE_LABELS.get(v, v.replace("_", " ").title())
+def _fmt_owner(v): return _OWNER_LABELS.get(v, v.title())
+def _fmt_tax(v):   return _TAX_LABELS.get(v, v.replace("_", " ").title())
+
 # ── Sidebar logout ────────────────────────────────────────────────────────────
 with st.sidebar:
     if st.button("🚪 Sign out", use_container_width=True):
@@ -73,24 +97,32 @@ if st.session_state.get("show_add"):
                 account_name = st.text_input("Account Name", placeholder="e.g. My Roth IRA")
 
             with col2:
-                account_type = st.selectbox("Account Type", [
-                    "brokerage", "roth_ira", "traditional_ira", "401k", "solo_401k",
-                    "sep_ira", "hsa", "fsa", "crypto", "savings", "checking",
-                    "treasury", "cd", "real_estate",
-                ])
-                owner = st.selectbox("Owner", ["self", "spouse", "joint"])
-                tax_map = {
-                    "brokerage": "taxable", "roth_ira": "tax_free",
+                account_type = st.selectbox(
+                    "Account Type",
+                    list(_ACCT_TYPE_LABELS.keys()),
+                    format_func=_fmt_acct,
+                )
+                owner = st.selectbox(
+                    "Owner",
+                    ["self", "spouse", "joint"],
+                    format_func=_fmt_owner,
+                )
+                _tax_map = {
+                    "brokerage": "taxable",       "roth_ira": "tax_free",
                     "traditional_ira": "tax_deferred", "401k": "tax_deferred",
-                    "solo_401k": "tax_deferred", "sep_ira": "tax_deferred",
-                    "hsa": "tax_free", "fsa": "tax_free", "crypto": "taxable",
-                    "savings": "taxable", "checking": "taxable",
-                    "treasury": "taxable", "cd": "taxable", "real_estate": "taxable",
+                    "solo_401k": "tax_deferred",  "sep_ira": "tax_deferred",
+                    "hsa": "tax_free",             "fsa": "tax_free",
+                    "crypto": "taxable",           "savings": "taxable",
+                    "checking": "taxable",         "treasury": "taxable",
+                    "cd": "taxable",               "real_estate": "taxable",
                 }
-                tax_status = st.selectbox("Tax Status",
+                tax_status = st.selectbox(
+                    "Tax Status",
                     ["taxable", "tax_deferred", "tax_free"],
+                    format_func=_fmt_tax,
                     index=["taxable", "tax_deferred", "tax_free"].index(
-                        tax_map.get(account_type, "taxable")))
+                        _tax_map.get(account_type, "taxable")),
+                )
 
             submitted = st.form_submit_button("Save Account", type="primary")
             cancelled = st.form_submit_button("Cancel")
@@ -127,7 +159,7 @@ if st.session_state.get("show_manual"):
             with col1:
                 m_name = st.text_input("Account Name", placeholder="e.g. 401k at Work")
             with col2:
-                m_owner = st.selectbox("Owner", ["self", "spouse", "joint"])
+                m_owner = st.selectbox("Owner", ["self", "spouse", "joint"], format_func=_fmt_owner)
             with col3:
                 m_value = st.number_input("Current Value ($)", min_value=0.0, step=100.0)
             m_notes = st.text_input("Notes (optional)")
@@ -167,14 +199,16 @@ else:
     for acc in accounts:
         active = str(acc.get("active", "TRUE")).upper() in ("TRUE", "1", "YES")
         badge = "🟢" if active else "⚫"
-        tax = acc.get("tax_status", "").replace("_", " ").title()
+        tax   = _fmt_tax(acc.get("tax_status", ""))
 
         with st.container():
             c1, c2, c3, c4 = st.columns([3, 2, 1.5, 0.5])
             with c1:
                 st.markdown(f"**{acc.get('account_name', '')}**  \n"
                             f"<span style='color:#94a3b8;font-size:13px'>"
-                            f"{acc.get('broker_name','')} · {acc.get('account_type','')} · {acc.get('owner','')}"
+                            f"{acc.get('broker_name','')} · "
+                            f"{_fmt_acct(acc.get('account_type',''))} · "
+                            f"{_fmt_owner(acc.get('owner',''))}"
                             f"</span>", unsafe_allow_html=True)
             with c2:
                 st.caption(tax)
@@ -211,7 +245,7 @@ if manual:
         with c1:
             st.markdown(f"**{e.get('account_name','')}**  \n"
                         f"<span style='color:#94a3b8;font-size:13px'>"
-                        f"{e.get('owner','')} · {e.get('entry_date','')}"
+                        f"{_fmt_owner(e.get('owner',''))} · {e.get('entry_date','')}"
                         f"</span>", unsafe_allow_html=True)
         with c2:
             st.caption(e.get("notes", ""))
