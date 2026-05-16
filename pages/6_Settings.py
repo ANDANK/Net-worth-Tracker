@@ -20,7 +20,7 @@ with st.sidebar:
         st.rerun()
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_brokers():
     return list_brokers(include_inactive=True)
 

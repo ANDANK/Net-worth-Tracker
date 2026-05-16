@@ -74,7 +74,7 @@ def _icon(atype: str) -> str:
     return _ATYPE_ICON.get(atype, "💰")
 
 # ── Data loaders ──────────────────────────────────────────────────────────────
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=600)
 def _load_ret_accounts():
     all_accs = list_accounts()
     return [
@@ -83,13 +83,18 @@ def _load_ret_accounts():
         and str(a.get("active", "TRUE")).upper() in ("TRUE", "1", "YES")
     ]
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def _load_history():
     return load_retirement_history()
 
-@st.cache_data(ttl=60)
-def _load_latest():
-    return get_latest_balances()
+def _compute_latest(history: list[dict]) -> dict[str, float]:
+    """Derive the most-recent balance per account_id from already-cached history."""
+    latest: dict[str, float] = {}
+    for r in history:
+        aid = r.get("account_id", "")
+        if aid and aid not in latest:
+            latest[aid] = float(r.get("balance", 0) or 0)
+    return latest
 
 # ── Page header ───────────────────────────────────────────────────────────────
 hdr_l, hdr_r = st.columns([3, 1])
@@ -174,7 +179,7 @@ with tab1:
         )
 
     try:
-        last_bal = _load_latest()
+        last_bal = _compute_latest(_load_history())
     except Exception:
         last_bal = {}
 
@@ -342,7 +347,7 @@ with tab2:
     # ── Load data ─────────────────────────────────────────────────────────────
     try:
         history = _load_history()
-        latest  = _load_latest()
+        latest  = _compute_latest(history)
     except Exception as exc:
         st.error(f"Could not load history: {exc}")
         st.stop()

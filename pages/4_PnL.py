@@ -22,7 +22,7 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.rerun()
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=600)
 def load_accounts():
     return list_accounts()
 
