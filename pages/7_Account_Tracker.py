@@ -676,7 +676,7 @@ with tab2:
 
     st.divider()
 
-    # ── History chart + pie ───────────────────────────────────────────────────
+    # ── Balance history chart (full width) ───────────────────────────────────
     df_h = pd.DataFrame(history)
     df_h["date"]    = pd.to_datetime(df_h["date"], errors="coerce")
     df_h["balance"] = pd.to_numeric(df_h["balance"], errors="coerce").fillna(0)
@@ -690,60 +690,35 @@ with tab2:
         "real_estate":"#fb923c","fsa":"#e879f9",
     }
 
-    hist_col, pie_col = st.columns([2, 1])
-    with hist_col:
-        st.subheader("📈 Balance Over Time")
-        fig_h = go.Figure()
-        for acc in display_accounts:
-            aid  = acc["account_id"]
-            df_a = df_h[df_h["account_id"]==aid].sort_values("date")
-            if df_a.empty: continue
-            fig_h.add_trace(go.Scatter(
-                x=df_a["date"], y=df_a["balance"], name=acc["account_name"],
-                mode="lines+markers",
-                line=dict(width=1.5, color=color_pool.get(acc.get("account_type",""),"#94a3b8")),
-                opacity=0.75,
-                hovertemplate=f"{acc['account_name']}<br>%{{x|%b %Y}}: $%{{y:,.0f}}<extra></extra>",
-            ))
-        df_comb = df_h.groupby("date")["balance"].sum().reset_index().sort_values("date")
+    st.subheader("📈 Balance Over Time")
+    fig_h = go.Figure()
+    for acc in display_accounts:
+        aid  = acc["account_id"]
+        df_a = df_h[df_h["account_id"]==aid].sort_values("date")
+        if df_a.empty: continue
         fig_h.add_trace(go.Scatter(
-            x=df_comb["date"], y=df_comb["balance"], name="Combined",
-            mode="lines+markers", line=dict(width=3, color="#3b82f6"),
-            hovertemplate="Combined<br>%{x|%b %Y}: $%{y:,.0f}<extra></extra>",
+            x=df_a["date"], y=df_a["balance"], name=acc["account_name"],
+            mode="lines+markers",
+            line=dict(width=1.5, color=color_pool.get(acc.get("account_type",""),"#94a3b8")),
+            opacity=0.75,
+            hovertemplate=f"{acc['account_name']}<br>%{{x|%b %Y}}: $%{{y:,.0f}}<extra></extra>",
         ))
-        fig_h.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-            height=330, margin=dict(l=0,r=0,t=8,b=0),
-            legend=dict(orientation="h", y=-0.32, font_size=11),
-            xaxis=dict(showgrid=False),
-            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                       tickprefix="$", tickformat=",.0f"),
-            hovermode="x unified",
-        )
-        st.plotly_chart(fig_h, use_container_width=True)
-
-    with pie_col:
-        st.subheader("🥧 Allocation")
-        pie_labels, pie_vals, pie_colors = [], [], []
-        _pal = px.colors.qualitative.Set2
-        for i, acc in enumerate(display_accounts):
-            bal = latest.get(acc["account_id"], 0)
-            if bal > 0 and acc["account_id"] not in excluded:
-                pie_labels.append(acc["account_name"])
-                pie_vals.append(bal)
-                pie_colors.append(_pal[i % len(_pal)])
-        if pie_labels:
-            fig_pie = go.Figure(go.Pie(
-                labels=pie_labels, values=pie_vals, hole=0.55,
-                marker=dict(colors=pie_colors), textinfo="percent",
-                hovertemplate="%{label}<br>$%{value:,.0f} (%{percent})<extra></extra>",
-            ))
-            fig_pie.add_annotation(text=fmt_currency(total_now), x=0.5, y=0.5,
-                                   font=dict(size=15, color="white"), showarrow=False)
-            fig_pie.update_layout(paper_bgcolor="rgba(0,0,0,0)",
-                                  margin=dict(l=0,r=0,t=8,b=0), height=330,
-                                  legend=dict(orientation="v", font_size=10))
-            st.plotly_chart(fig_pie, use_container_width=True)
+    df_comb = df_h.groupby("date")["balance"].sum().reset_index().sort_values("date")
+    fig_h.add_trace(go.Scatter(
+        x=df_comb["date"], y=df_comb["balance"], name="Combined",
+        mode="lines+markers", line=dict(width=3, color="#3b82f6"),
+        hovertemplate="Combined<br>%{x|%b %Y}: $%{y:,.0f}<extra></extra>",
+    ))
+    fig_h.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        height=330, margin=dict(l=0,r=0,t=8,b=0),
+        legend=dict(orientation="h", y=-0.22, font_size=11),
+        xaxis=dict(showgrid=False),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                   tickprefix="$", tickformat=",.0f"),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig_h, use_container_width=True)
 
     st.divider()
 
@@ -833,6 +808,83 @@ with tab2:
                          column_config={"Balance":st.column_config.NumberColumn(format="$%.0f"),
                                         "YoY $":st.column_config.NumberColumn(format="$%.0f"),
                                         "YoY %":st.column_config.NumberColumn(format="%.1f%%")})
+
+    st.divider()
+
+    # ── Year-End Balances at Account Level (pivot table) ─────────────────────
+    st.subheader("🏦 Year-End Balances at Account Level")
+    _hist_nonzero = [r for r in hist_filtered if float(r.get("balance", 0) or 0) > 0]
+    if not _hist_nonzero:
+        st.info("No non-zero balance data yet.")
+    else:
+        _pv_df = pd.DataFrame(_hist_nonzero)
+        _pv_df["date"]    = pd.to_datetime(_pv_df["date"], errors="coerce")
+        _pv_df["balance"] = pd.to_numeric(_pv_df["balance"], errors="coerce").fillna(0)
+        _pv_df["year"]    = _pv_df["date"].dt.year
+
+        # Last snapshot per account per year
+        _pv_last = (
+            _pv_df.sort_values("date")
+            .groupby(["year", "account_id"])["balance"]
+            .last()
+            .reset_index()
+        )
+        _name_map = {a["account_id"]: a["account_name"] for a in display_accounts}
+        _pv_last["account_name"] = _pv_last["account_id"].map(_name_map).fillna(_pv_last["account_id"])
+
+        # Pivot: rows = account, columns = year
+        _pivot = _pv_last.pivot_table(
+            index="account_name", columns="year", values="balance", aggfunc="last"
+        )
+        _years = sorted(_pivot.columns)
+
+        # Build flat wide table with interleaved Balance / YoY$ / YoY%
+        _rows_pv = []
+        for acct in _pivot.index:
+            row = {"Account": acct}
+            for i, yr in enumerate(_years):
+                bal = _pivot.loc[acct, yr] if not pd.isna(_pivot.loc[acct, yr]) else None
+                row[f"{yr} Balance"] = bal
+                if i > 0:
+                    prev_yr  = _years[i - 1]
+                    prev_bal = _pivot.loc[acct, prev_yr] if not pd.isna(_pivot.loc[acct, prev_yr]) else None
+                    if bal is not None and prev_bal is not None and prev_bal != 0:
+                        row[f"{yr} YoY $"] = bal - prev_bal
+                        row[f"{yr} YoY %"] = (bal - prev_bal) / prev_bal * 100
+                    else:
+                        row[f"{yr} YoY $"] = None
+                        row[f"{yr} YoY %"] = None
+                else:
+                    row[f"{yr} YoY $"] = None
+                    row[f"{yr} YoY %"] = None
+            _rows_pv.append(row)
+
+        _wide_df = pd.DataFrame(_rows_pv)
+
+        # Column config for all year columns
+        _col_cfg_pv = {}
+        for yr in _years:
+            _col_cfg_pv[f"{yr} Balance"] = st.column_config.NumberColumn(
+                f"{yr} Balance", format="$%.0f", width="medium"
+            )
+            _col_cfg_pv[f"{yr} YoY $"] = st.column_config.NumberColumn(
+                f"{yr} YoY $", format="$%+.0f", width="medium"
+            )
+            _col_cfg_pv[f"{yr} YoY %"] = st.column_config.NumberColumn(
+                f"{yr} YoY %", format="%.1f%%", width="small"
+            )
+
+        st.caption(
+            "Rows = accounts · Columns = year-end snapshots · "
+            "Scroll right to see more years · YoY vs. prior year-end snapshot"
+        )
+        st.dataframe(
+            _wide_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(500, 60 + 38 * max(len(_wide_df), 1)),
+            column_config=_col_cfg_pv,
+        )
 
     st.divider()
 

@@ -172,8 +172,10 @@ def load_retirement_history() -> list[dict]:
     """Return all saved snapshots, newest first."""
     records = sheets_client.get_all_records("retirement_balances")
     for r in records:
+        # Strip currency formatting ($, commas, spaces) before parsing
+        raw = str(r.get("balance", "") or "").strip().replace("$", "").replace(",", "")
         try:
-            r["balance"] = float(r["balance"])
+            r["balance"] = float(raw)
         except (ValueError, TypeError):
             r["balance"] = 0.0
     records.sort(
@@ -217,6 +219,7 @@ def monthly_totals(history: list[dict], months: int = 8) -> pd.DataFrame:
         .reset_index()
     )
     totals = last_per_month.groupby("month")["balance"].sum().reset_index()
+    totals = totals[totals["balance"] > 0]          # drop months with no real data
     totals = totals.sort_values("month").tail(months).reset_index(drop=True)
     totals["month_str"]  = totals["month"].astype(str)
     totals["mom_change"] = totals["balance"].diff()
@@ -243,6 +246,7 @@ def yearend_totals(history: list[dict]) -> pd.DataFrame:
         .reset_index()
     )
     totals = last_per_year.groupby("year")["balance"].sum().reset_index()
+    totals = totals[totals["balance"] > 0]          # drop years with no real data
     totals = totals.sort_values("year").reset_index(drop=True)
     totals.rename(columns={"balance": "total"}, inplace=True)
     totals["yoy_change"] = totals["total"].diff()
