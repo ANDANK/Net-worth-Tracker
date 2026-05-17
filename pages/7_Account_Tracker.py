@@ -679,7 +679,153 @@ with tab2:
 
         st.divider()
 
-        # ── Balance history chart ─────────────────────────────────────────────
+        # ── 1. Year-End Balances at Account Level — most recent year first ────
+        st.subheader("🏦 Year-End Balances at Account Level")
+        _hist_nonzero = [r for r in _hist_filt if float(r.get("balance", 0) or 0) > 0]
+        if not _hist_nonzero:
+            st.info("No non-zero balance data yet.")
+        else:
+            _pv_df = pd.DataFrame(_hist_nonzero)
+            _pv_df["date"]    = pd.to_datetime(_pv_df["date"], errors="coerce")
+            _pv_df["balance"] = pd.to_numeric(_pv_df["balance"], errors="coerce").fillna(0)
+            _pv_df["year"]    = _pv_df["date"].dt.year
+            _pv_last = (
+                _pv_df.sort_values("date")
+                .groupby(["year", "account_id"])["balance"].last().reset_index()
+            )
+            _name_map = {a["account_id"]: a["account_name"] for a in display_accounts}
+            _pv_last["account_name"] = _pv_last["account_id"].map(_name_map).fillna(_pv_last["account_id"])
+            _pivot = _pv_last.pivot_table(index="account_name", columns="year",
+                                          values="balance", aggfunc="last")
+            # Most recent year first (leftmost column)
+            _years = sorted(_pivot.columns, reverse=True)
+            _rows_pv = []
+            for acct in _pivot.index:
+                row = {"Account": acct}
+                for i, yr in enumerate(_years):
+                    bal = _pivot.loc[acct, yr] if not pd.isna(_pivot.loc[acct, yr]) else None
+                    row[f"{yr} Balance"] = bal
+                    # next element in reversed list = chronologically older year
+                    prev_yr = _years[i + 1] if i + 1 < len(_years) else None
+                    if prev_yr is not None:
+                        prev_bal = _pivot.loc[acct, prev_yr] if not pd.isna(_pivot.loc[acct, prev_yr]) else None
+                        if bal is not None and prev_bal is not None and prev_bal != 0:
+                            row[f"{yr} YoY $"] = bal - prev_bal
+                            row[f"{yr} YoY %"] = (bal - prev_bal) / prev_bal * 100
+                        else:
+                            row[f"{yr} YoY $"] = row[f"{yr} YoY %"] = None
+                    else:
+                        row[f"{yr} YoY $"] = row[f"{yr} YoY %"] = None
+                _rows_pv.append(row)
+            _wide_df = pd.DataFrame(_rows_pv)
+            _col_cfg_pv = {}
+            for yr in _years:
+                _col_cfg_pv[f"{yr} Balance"] = st.column_config.NumberColumn(f"{yr} Balance", format="$%,.0f",  width="medium")
+                _col_cfg_pv[f"{yr} YoY $"]   = st.column_config.NumberColumn(f"{yr} YoY $",   format="$%+,.0f", width="medium")
+                _col_cfg_pv[f"{yr} YoY %"]   = st.column_config.NumberColumn(f"{yr} YoY %",   format="%+.1f%%", width="small")
+            st.caption("Most recent year first · Scroll right for older years · YoY vs prior year-end")
+            st.dataframe(_wide_df, use_container_width=True, hide_index=True,
+                         height=min(500, 60 + 38 * max(len(_wide_df), 1)),
+                         column_config=_col_cfg_pv)
+
+        st.divider()
+
+        # ── 2. Monthly Trend — most recent month at top of table ──────────────
+        st.subheader("📅 Monthly Trend — Last 8 Months")
+        df_mo = monthly_totals(_hist_filt, months=8)
+        if df_mo.empty:
+            st.info("Not enough history for monthly trend yet.")
+        else:
+            mo_c, mo_t = st.columns([1.6, 1])
+            with mo_c:
+                fig_mo = go.Figure(go.Bar(
+                    x=df_mo["month_str"], y=df_mo["total"], marker_color="#3b82f6",
+                    text=df_mo["total"].apply(lambda v: f"${v/1e6:.2f}M" if v>=1e6 else f"${v:,.0f}"),
+                    textposition="outside",
+                    hovertemplate="%{x}<br>$%{y:,.0f}<extra></extra>",
+                ))
+                fig_mo.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                     height=260, margin=dict(l=0,r=0,t=10,b=0),
+                                     xaxis=dict(showgrid=False),
+                                     yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                                                tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig_mo, use_container_width=True)
+            with mo_t:
+                df_mo_s = (df_mo[["month_str","total","mom_change"]]
+                           .copy().iloc[::-1].reset_index(drop=True))
+                df_mo_s.columns = ["Month", "Balance", "MoM Change"]
+                st.dataframe(df_mo_s, use_container_width=True, hide_index=True, height=260,
+                             column_config={
+                                 "Balance":    st.column_config.NumberColumn(format="$%,.0f"),
+                                 "MoM Change": st.column_config.NumberColumn(format="$%+,.0f"),
+                             })
+
+        st.divider()
+
+        # ── 3. Year-End Balances (Historical) — most recent year at top ───────
+        st.subheader("📆 Year-End Balances (Historical)")
+        df_ye = yearend_totals(_hist_filt)
+        if df_ye.empty:
+            st.info("Not enough history for year-end summary yet.")
+        else:
+            ye_c, ye_t = st.columns([1.6, 1])
+            with ye_c:
+                bar_colors = [
+                    "#3b82f6" if i==0 or pd.isna(r["yoy_change"])
+                    else ("#10b981" if r["yoy_change"]>=0 else "#ef4444")
+                    for i, r in df_ye.iterrows()
+                ]
+                fig_ye = go.Figure(go.Bar(
+                    x=df_ye["year"].astype(str), y=df_ye["total"], marker_color=bar_colors,
+                    text=df_ye["total"].apply(lambda v: f"${v/1e6:.2f}M" if v>=1e6 else f"${v:,.0f}"),
+                    textposition="outside",
+                    hovertemplate="Year %{x}<br>$%{y:,.0f}<extra></extra>",
+                ))
+                fig_ye.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                     height=260, margin=dict(l=0,r=0,t=10,b=0),
+                                     xaxis=dict(showgrid=False),
+                                     yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                                                tickprefix="$", tickformat=",.0f"))
+                st.plotly_chart(fig_ye, use_container_width=True)
+            with ye_t:
+                df_ye_s = (df_ye[["year","total","yoy_change","yoy_pct"]]
+                           .copy().iloc[::-1].reset_index(drop=True))
+                df_ye_s.columns = ["Year", "Balance", "YoY $", "YoY %"]
+                st.dataframe(df_ye_s, use_container_width=True, hide_index=True, height=260,
+                             column_config={
+                                 "Balance": st.column_config.NumberColumn(format="$%,.0f"),
+                                 "YoY $":   st.column_config.NumberColumn(format="$%+,.0f"),
+                                 "YoY %":   st.column_config.NumberColumn(format="%+.1f%%"),
+                             })
+
+        st.divider()
+
+        # ── 4. AK vs PA grouped bar ───────────────────────────────────────────
+        st.subheader(f"👤 {self_name} vs 👥 {spouse_name}")
+        cmp_rows = [
+            {"Account": a["account_name"],
+             "Person":  self_name if a.get("owner")=="self" else (spouse_name if a.get("owner")=="spouse" else "Joint"),
+             "Balance": _latest.get(a["account_id"], 0)}
+            for a in display_accounts if a["account_id"] not in _excluded
+        ]
+        if cmp_rows:
+            df_cmp = pd.DataFrame(cmp_rows)
+            fig_cmp = px.bar(df_cmp, x="Account", y="Balance", color="Person", barmode="group",
+                             color_discrete_map={self_name:"#10b981", spouse_name:"#f59e0b", "Joint":"#3b82f6"},
+                             text="Balance")
+            fig_cmp.update_traces(texttemplate="$%{text:,.0f}", textposition="outside",
+                                  hovertemplate="%{x}<br>$%{y:,.0f}<extra></extra>")
+            fig_cmp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                  height=300, margin=dict(l=0,r=0,t=8,b=0),
+                                  xaxis=dict(showgrid=False),
+                                  yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                                             tickprefix="$", tickformat=",.0f"))
+            st.plotly_chart(fig_cmp, use_container_width=True)
+
+        st.divider()
+
+        # ── 5. Balance Over Time ──────────────────────────────────────────────
+        st.subheader("📈 Balance Over Time")
         df_h = pd.DataFrame(_history)
         df_h["date"]    = pd.to_datetime(df_h["date"], errors="coerce")
         df_h["balance"] = pd.to_numeric(df_h["balance"], errors="coerce").fillna(0)
@@ -692,8 +838,6 @@ with tab2:
             "checking":"#fbbf24","treasury":"#6ee7b7","cd":"#a3e635",
             "real_estate":"#fb923c","fsa":"#e879f9",
         }
-
-        st.subheader("📈 Balance Over Time")
         fig_h = go.Figure()
         for acc in display_accounts:
             aid  = acc["account_id"]
@@ -722,142 +866,6 @@ with tab2:
             hovermode="x unified",
         )
         st.plotly_chart(fig_h, use_container_width=True)
-
-        st.divider()
-
-        # ── Self vs Spouse bar ────────────────────────────────────────────────
-        st.subheader(f"👤 {self_name} vs 👥 {spouse_name}")
-        cmp_rows = [
-            {"Account": a["account_name"],
-             "Person":  self_name if a.get("owner")=="self" else (spouse_name if a.get("owner")=="spouse" else "Joint"),
-             "Balance": _latest.get(a["account_id"], 0)}
-            for a in display_accounts if a["account_id"] not in _excluded
-        ]
-        if cmp_rows:
-            df_cmp = pd.DataFrame(cmp_rows)
-            fig_cmp = px.bar(df_cmp, x="Account", y="Balance", color="Person", barmode="group",
-                             color_discrete_map={self_name:"#10b981", spouse_name:"#f59e0b", "Joint":"#3b82f6"},
-                             text="Balance")
-            fig_cmp.update_traces(texttemplate="$%{text:,.0f}", textposition="outside",
-                                  hovertemplate="%{x}<br>$%{y:,.0f}<extra></extra>")
-            fig_cmp.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                  height=300, margin=dict(l=0,r=0,t=8,b=0),
-                                  xaxis=dict(showgrid=False),
-                                  yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                                             tickprefix="$", tickformat=",.0f"))
-            st.plotly_chart(fig_cmp, use_container_width=True)
-
-        st.divider()
-
-        # ── Monthly trend ─────────────────────────────────────────────────────
-        st.subheader("📅 Monthly Trend — Last 8 Months")
-        df_mo = monthly_totals(_hist_filt, months=8)
-        if df_mo.empty:
-            st.info("Not enough history for monthly trend yet.")
-        else:
-            mo_c, mo_t = st.columns([1.6, 1])
-            with mo_c:
-                fig_mo = go.Figure(go.Bar(
-                    x=df_mo["month_str"], y=df_mo["total"], marker_color="#3b82f6",
-                    text=df_mo["total"].apply(lambda v: f"${v/1e6:.2f}M" if v>=1e6 else f"${v:,.0f}"),
-                    textposition="outside",
-                    hovertemplate="%{x}<br>$%{y:,.0f}<extra></extra>",
-                ))
-                fig_mo.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                     height=260, margin=dict(l=0,r=0,t=10,b=0),
-                                     xaxis=dict(showgrid=False),
-                                     yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                                                tickprefix="$", tickformat=",.0f"))
-                st.plotly_chart(fig_mo, use_container_width=True)
-            with mo_t:
-                df_mo_s = df_mo[["month_str","total","mom_change"]].copy()
-                df_mo_s.columns = ["Month","Total","MoM Change"]
-                st.dataframe(df_mo_s, use_container_width=True, hide_index=True, height=260,
-                             column_config={"Total":st.column_config.NumberColumn(format="$%.0f"),
-                                            "MoM Change":st.column_config.NumberColumn(format="$%.0f")})
-
-        st.divider()
-
-        # ── Year-end historical balances ──────────────────────────────────────
-        st.subheader("📆 Year-End Balances (Historical)")
-        df_ye = yearend_totals(_hist_filt)
-        if df_ye.empty:
-            st.info("Not enough history for year-end summary yet.")
-        else:
-            ye_c, ye_t = st.columns([1.6, 1])
-            with ye_c:
-                bar_colors = [
-                    "#3b82f6" if i==0 or pd.isna(r["yoy_change"])
-                    else ("#10b981" if r["yoy_change"]>=0 else "#ef4444")
-                    for i, r in df_ye.iterrows()
-                ]
-                fig_ye = go.Figure(go.Bar(
-                    x=df_ye["year"].astype(str), y=df_ye["total"], marker_color=bar_colors,
-                    text=df_ye["total"].apply(lambda v: f"${v/1e6:.2f}M" if v>=1e6 else f"${v:,.0f}"),
-                    textposition="outside",
-                    hovertemplate="Year %{x}<br>$%{y:,.0f}<extra></extra>",
-                ))
-                fig_ye.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                     height=260, margin=dict(l=0,r=0,t=10,b=0),
-                                     xaxis=dict(showgrid=False),
-                                     yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                                                tickprefix="$", tickformat=",.0f"))
-                st.plotly_chart(fig_ye, use_container_width=True)
-            with ye_t:
-                df_ye_s = df_ye[["year","total","yoy_change","yoy_pct"]].copy()
-                df_ye_s.columns = ["Year","Balance","YoY $","YoY %"]
-                st.dataframe(df_ye_s, use_container_width=True, hide_index=True, height=260,
-                             column_config={"Balance":st.column_config.NumberColumn(format="$%.0f"),
-                                            "YoY $":st.column_config.NumberColumn(format="$%.0f"),
-                                            "YoY %":st.column_config.NumberColumn(format="%.1f%%")})
-
-        st.divider()
-
-        # ── Year-End Balances at Account Level (pivot) ────────────────────────
-        st.subheader("🏦 Year-End Balances at Account Level")
-        _hist_nonzero = [r for r in _hist_filt if float(r.get("balance", 0) or 0) > 0]
-        if not _hist_nonzero:
-            st.info("No non-zero balance data yet.")
-        else:
-            _pv_df = pd.DataFrame(_hist_nonzero)
-            _pv_df["date"]    = pd.to_datetime(_pv_df["date"], errors="coerce")
-            _pv_df["balance"] = pd.to_numeric(_pv_df["balance"], errors="coerce").fillna(0)
-            _pv_df["year"]    = _pv_df["date"].dt.year
-            _pv_last = (
-                _pv_df.sort_values("date")
-                .groupby(["year", "account_id"])["balance"].last().reset_index()
-            )
-            _name_map = {a["account_id"]: a["account_name"] for a in display_accounts}
-            _pv_last["account_name"] = _pv_last["account_id"].map(_name_map).fillna(_pv_last["account_id"])
-            _pivot = _pv_last.pivot_table(index="account_name", columns="year",
-                                          values="balance", aggfunc="last")
-            _years = sorted(_pivot.columns)
-            _rows_pv = []
-            for acct in _pivot.index:
-                row = {"Account": acct}
-                for i, yr in enumerate(_years):
-                    bal = _pivot.loc[acct, yr] if not pd.isna(_pivot.loc[acct, yr]) else None
-                    row[f"{yr} Balance"] = bal
-                    if i > 0:
-                        prev_bal = _pivot.loc[acct, _years[i-1]] if not pd.isna(_pivot.loc[acct, _years[i-1]]) else None
-                        if bal is not None and prev_bal is not None and prev_bal != 0:
-                            row[f"{yr} YoY $"] = bal - prev_bal
-                            row[f"{yr} YoY %"] = (bal - prev_bal) / prev_bal * 100
-                        else:
-                            row[f"{yr} YoY $"] = row[f"{yr} YoY %"] = None
-                    else:
-                        row[f"{yr} YoY $"] = row[f"{yr} YoY %"] = None
-                _rows_pv.append(row)
-            _wide_df = pd.DataFrame(_rows_pv)
-            _col_cfg_pv = {}
-            for yr in _years:
-                _col_cfg_pv[f"{yr} Balance"] = st.column_config.NumberColumn(f"{yr} Balance", format="$%.0f",  width="medium")
-                _col_cfg_pv[f"{yr} YoY $"]   = st.column_config.NumberColumn(f"{yr} YoY $",   format="$%+.0f", width="medium")
-                _col_cfg_pv[f"{yr} YoY %"]   = st.column_config.NumberColumn(f"{yr} YoY %",   format="%.1f%%", width="small")
-            st.caption("Rows = accounts · Columns = year-end snapshots · Scroll right for more years · YoY vs prior year-end")
-            st.dataframe(_wide_df, use_container_width=True, hide_index=True,
-                         height=min(500, 60 + 38 * max(len(_wide_df), 1)),
-                         column_config=_col_cfg_pv)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1075,9 +1083,9 @@ with tab3:
                 tbl.rename(columns={"year":"Year","balance":"Combined"}, inplace=True)
                 st.dataframe(tbl, hide_index=True, use_container_width=True,
                              column_config={
-                                 "Combined":st.column_config.NumberColumn(format="$%.0f"),
-                                 f"{self_name}":st.column_config.NumberColumn(format="$%.0f"),
-                                 f"{spouse_name}":st.column_config.NumberColumn(format="$%.0f"),
-                                 "Contributions":st.column_config.NumberColumn(format="$%.0f"),
-                                 "Growth $":st.column_config.NumberColumn(format="$%.0f"),
+                                 "Combined":        st.column_config.NumberColumn(format="$%,.0f"),
+                                 f"{self_name}":    st.column_config.NumberColumn(format="$%,.0f"),
+                                 f"{spouse_name}":  st.column_config.NumberColumn(format="$%,.0f"),
+                                 "Contributions":   st.column_config.NumberColumn(format="$%,.0f"),
+                                 "Growth $":        st.column_config.NumberColumn(format="$%,.0f"),
                              })
